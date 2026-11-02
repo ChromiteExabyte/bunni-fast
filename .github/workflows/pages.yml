@@ -1,0 +1,35 @@
+name: Deploy Bunni page
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Keep original game assets outside publication
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          forbidden = [str(p) for p in Path('site').rglob('*') if p.is_file() and p.suffix.lower() in ('.swf', '.xml')]
+          if forbidden:
+              raise SystemExit('Original/full game assets must not be published: ' + ', '.join(forbidden))
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
