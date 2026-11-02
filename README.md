@@ -2,6 +2,8 @@
 
 A patch for the Internet Archive's copy of LunaDrift's 2009 Flash game, running in modern browsers under [Ruffle](https://ruffle.rs).
 
+**Play in your browser:** [original size](https://chromiteexabyte.github.io/bunni-fast/?size=original) � [larger 4:3 presentation](https://chromiteexabyte.github.io/bunni-fast/?size=large). Nothing to install.
+
 The target is the original **30 game updates per second**, at **HIGH quality** with the original animation and timer pacing. The larger presentation is **1440 × 1080**, keeping the original 4:3 aspect ratio. Existing bitmap artwork is enlarged; this does not replace it with new HD artwork.
 
 ## What changes
@@ -35,7 +37,7 @@ Local records include placed items, inventory, workers and job links, balances, 
 
 Tests use actual game-world screenshots, valid viewports and game-update counters, not the title-screen browser FPS. See [the performance and verification notes](docs/performance.md).
 
-Chrome 156 and Firefox 159 on Windows 11 / Intel Iris Xe have been tested at HIGH quality using `wgpu-webgl`. Persistent progress, browser restarts, portable backups and heart-animation recovery were checked. The current candidate also passed 300 movement comparisons against the original compiled movement method with zero mismatches.
+Chrome 156 and Firefox 159 on Windows 11 / Intel Iris Xe have been tested at HIGH quality using `wgpu-webgl`. Persistent progress, browser restarts, portable backups and heart-animation recovery were checked. The released patch also passed 300 movement comparisons against the original compiled movement method with zero mismatches.
 
 The latest 37-second Chrome standing/walking run used a 1920 × 1144 viewport and a 1440 × 1080 game presentation. Game-update CPU time was 1.8 ms at the 95th percentile, 10.6 ms worst. Occasional wall-clock frame gaps approached 50 ms; a blank-page reference also showed refresh-sized callback delays. These results establish a large improvement, not a guarantee of zero jitter on every machine or a full-game completion test.
 
