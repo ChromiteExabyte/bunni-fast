@@ -43,7 +43,7 @@ document.getElementById('retry').addEventListener('click', () => location.reload
 const flip = new URLSearchParams(q);
 if (original) flip.delete('swf'); else flip.set('swf', 'LandOfBunnies.orig.swf');
 const which = document.getElementById('which');
-which.textContent = original ? 'Original version · ' : 'Patched for its original 30 fps · ';
+which.textContent = original ? 'Original version \u00b7 ' : 'Patched for its original 30 fps \u00b7 ';
 const compare = document.createElement('a');
 compare.href = '?' + flip;
 compare.textContent = original ? 'play the patched version' : 'compare the original';
@@ -66,7 +66,7 @@ async function start() {
     const [source, patch] = await Promise.all([
       fetchBytes(manifest.sourceUrl), fetchBytes('patches/land-of-bunnies.bpatch.gz'),
     ]);
-    document.getElementById('load-message').textContent = 'Preparing Bunni…';
+    document.getElementById('load-message').textContent = 'Preparing Bunni...';
     options = {data:await BunniPatch.verifiedPatch(source, patch, manifest), swfFileName:'LandOfBunnies.swf'};
   }
   options.parameters = {bunniBench:q.get('bench') === '1' ? '1' : '0'};
@@ -132,7 +132,7 @@ let last = performance.now(), frames = 0, worst = 0, acc = 0;
     if (__perf.length > 600) __perf.shift();
     if (!hud.hidden) {
       const g = __gamePerf.at(-1);
-      hud.textContent = g ? `${(g.frames*1000/g.ms).toFixed(1)} game fps · ${fps.toFixed(0)} browser fps` : `${fps.toFixed(0)} browser fps · game authored at 30 fps`;
+      hud.textContent = g ? `${(g.frames*1000/g.ms).toFixed(1)} game fps \u00b7 ${fps.toFixed(0)} browser fps` : `${fps.toFixed(0)} browser fps \u00b7 game authored at 30 fps`;
     }
     frames=0; acc=0; worst=0;
   }
