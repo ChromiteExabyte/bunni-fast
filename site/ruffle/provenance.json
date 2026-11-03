@@ -1,0 +1,104 @@
+{
+  "runtime": "Bunni renderer repair based on Ruffle 0.7.1; custom build, not an official Ruffle release",
+  "upstreamRepository": "https://github.com/ruffle-rs/ruffle",
+  "upstreamCommit": "89a7049965f3090e706265670df309a5128233ac",
+  "licenses": [
+    "MIT",
+    "Apache-2.0"
+  ],
+  "sourcePatch": "https://github.com/ChromiteExabyte/bunni-fast/blob/main/patches/ruffle/renderer.patch",
+  "sourcePatchSha256": "1b842f26bd62385916a6c783b0295891f1570b7c1afa6841704fd1771b69c564",
+  "source": [
+    {
+      "file": "core/src/display_object.rs",
+      "sha256": "da2402bccca2297d9ca391e1bf33540caf75a28c8f7fa96b90097fadb7206c69",
+      "normalizedLfSha256": "da2402bccca2297d9ca391e1bf33540caf75a28c8f7fa96b90097fadb7206c69"
+    },
+    {
+      "file": "core/src/display_object/bitmap_cache_bounds.rs",
+      "sha256": "43f1212a92c1c40dea6ad11e6758792a8a884257d692844fd94e804f2a6d05d1",
+      "normalizedLfSha256": "7ad9567507466c7f737b4d1a3b005c35fb8227ec79e1926b2a2b378ca7dccb07"
+    },
+    {
+      "file": "render/wgpu/src/backend.rs",
+      "sha256": "bbdbab1e920fb09cdc0fc30032809c07feced5eee4069f746802e445f8c7aaef",
+      "normalizedLfSha256": "bbdbab1e920fb09cdc0fc30032809c07feced5eee4069f746802e445f8c7aaef"
+    },
+    {
+      "file": "render/wgpu/src/buffer_pool.rs",
+      "sha256": "68048d7259b553b7ad17158950511e3c19a9e3596abb74107ef851a1a19ded70",
+      "normalizedLfSha256": "68048d7259b553b7ad17158950511e3c19a9e3596abb74107ef851a1a19ded70"
+    },
+    {
+      "file": "render/wgpu/src/lib.rs",
+      "sha256": "17587c64bbcdf9a48490cf8d67f4835d4bcc4fa118511d459300aac5db90d3dd",
+      "normalizedLfSha256": "a9b2e9efc34ee019dc487d062de2fb286224cc71bd0ac9692e621104285b63e6"
+    },
+    {
+      "file": "render/wgpu/src/texture_cache.rs",
+      "sha256": "7e8ba47128a50deee694d5d9bcb41a80a639369dd8ddc384e3560cc0bd87f4bc",
+      "normalizedLfSha256": "7e8ba47128a50deee694d5d9bcb41a80a639369dd8ddc384e3560cc0bd87f4bc"
+    }
+  ],
+  "artifacts": [
+    {
+      "file": "0be84fb241f0375453b8.wasm",
+      "sha256": "ad9db6ce4bc4db575bcbeac75d3d87e0c38f399c8ac57f65d8486cecdcddf482",
+      "bytes": 14458571
+    },
+    {
+      "file": "core.ruffle.d0dc0d3e3b346317f66c.js",
+      "sha256": "ff3ab45609dc01fbb5a4fb9659df0d84711ece70daf2c857413e0078e4daaae8",
+      "bytes": 106230
+    },
+    {
+      "file": "LICENSE_APACHE",
+      "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+      "bytes": 9723
+    },
+    {
+      "file": "LICENSE_MIT",
+      "sha256": "4de9338a7879c68e911742a7d691f0797ff1ef8d8a6fb978b0c711e258fe959c",
+      "bytes": 1097
+    },
+    {
+      "file": "ruffle.js",
+      "sha256": "ccbb9c2f4e1dccf014e42a342bcdaa4d3799aa7b9a0e32c3b7a307a070000c88",
+      "bytes": 465623
+    }
+  ],
+  "tools": {
+    "rust": "1.95.0",
+    "rustEdition": "2024",
+    "node": "24.22.2",
+    "wasmBindgen": "0.2.127",
+    "wasmOpt": false
+  },
+  "privacyCleanup": {
+    "bytes": 14458571,
+    "privatePrefixesRemoved": 440,
+    "sections": [
+      {
+        "section": 11,
+        "replacements": 440
+      }
+    ],
+    "codeSectionSHA256": [
+      "e4da400efec0c97bb3421a22d0cd0b8ade4393408dc68d489e9edbf6cd28b9bd"
+    ],
+    "codeUnchanged": true,
+    "beforeSHA256": "b33c5065937c99067da64c801df77e89d7ffcc65a0e7a28f1a6a2fda8ceaf5d9",
+    "afterSHA256": "ad9db6ce4bc4db575bcbeac75d3d87e0c38f399c8ac57f65d8486cecdcddf482"
+  },
+  "quality": "HIGH; original filters and MSAA retained",
+  "clock": "Original authored 30 FPS; no scheduler/simulation change",
+  "idleCacheLimit": {
+    "estimatedBytes": 268435456,
+    "entriesPerKey": 4,
+    "recentKeys": 64,
+    "retentionFramesAfterLastUse": 0,
+    "scope": "Idle cached temporary textures only, excluding active resources, game assets, staging buffers and driver memory"
+  },
+  "gameSwfCwsSha256": "c59866f927909a534a53c624a40163dab6556869da6d928c48d8cc3c236ee59c",
+  "verification": "https://github.com/ChromiteExabyte/bunni-fast/blob/main/docs/performance.md"
+}

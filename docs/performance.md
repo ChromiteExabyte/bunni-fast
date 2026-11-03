@@ -2,11 +2,37 @@
 
 ## Scope
 
-Original game: 800 x 600, 30 FPS, ActionScript 3. Test system: Windows 11, Intel Iris Xe, Chrome 156.0.8078.80 and Firefox 159.0, stock Ruffle 0.7.1 (commit `89a7049965f3090e706265670df309a5128233ac`). Default tested backend: `wgpu-webgl`, HIGH quality. HD means a 1440 x 1080 presentation in a 1920 x 1144 viewport; rasterized original art is enlarged.
+Original game: 800 x 600, 30 FPS, ActionScript 3. Test system: Windows 11, Intel Iris Xe, Chrome 156.0.8078.80 and Firefox 159.0, custom Ruffle renderer based on 0.7.1 (commit `89a7049965f3090e706265670df309a5128233ac`). Default tested backend: `wgpu-webgl`, HIGH quality. HD means a 1440 x 1080 presentation in a 1920 x 1144 viewport; rasterized original art is enlarged.
 
-## November 3 repair: matched frame-pacing evidence
+## November 3 custom runtime: matched HD validation
 
-The published build still stuttered in a progressed island scene. Short nominal-30-FPS samples had missed it. The repair retains stock Ruffle, HIGH quality, the original zero-radius/nonzero screen filters, exact pixel item hit testing and the authored 30-FPS clock. No experimental WASM scheduler or texture-pool patch is shipped.
+After the earlier SWF repair, first interactions and held-item rendering still stalled. Browser/API profiling linked GPU readback waits to `BitmapData.hitTest -> BitmapRawDataWrapper::sync -> QueueSyncHandle::capture -> getBufferSubData`. A full-HD baseline measured one 617.7 ms readback. Held placement also repeatedly allocated oversized MSAA captures despite the clipped stage; the stalls could occur without long synchronous GL calls.
+
+The [six-file renderer patch](../patches/ruffle/README.md) preserves filters, effects, exact pixel hit testing, HIGH quality, MSAA and the authored clock. It crops only conservatively eligible zero-blur cached captures on their original physical-pixel grid, with a guard and capture-origin invalidation. Temporary-texture reuse has bounded idle admission and weak per-target recent-draw history. One-shot/large bitmap draws keep the stock lifetime, avoiding an earlier rejected startup regression. No experimental scheduler, broad pixel prewarming or identity-filter bypass is shipped.
+
+Fresh isolated Chrome 156 profiles used the same copied save, exact game SWF, `wgpu-webgl`, viewport 1920 x 1144, DPR 1 and actual 1440 x 1080 presentation at HIGH. No concurrent heavy benchmarks or screenshots occurred inside timing windows.
+
+| Actual interval / allocation measurement | Stock-built control | Published custom candidate |
+| --- | --- | --- |
+| Held item, 20 seconds: new texture-storage calls | 1,116 | 0 |
+| Held item: game interval p95 / p99 / worst | 133.4 / 154.2 / 191.8 ms | 34.8 / 35.5 / 37.4 ms |
+| Held item: browser interval p95 / worst | 134.7 / 193.9 ms | 17.1 / 19.7 ms |
+| Walking/Map/Save, 77 seconds: game p95 / p99 / worst | 48.4 / 62.2 / 91.1 ms | 39.1 / 48.7 / 56 ms |
+| Same scenario: game intervals over 50.5 ms | 75 | 8 |
+| Same scenario: browser p95 / p99 / worst | 27.6 / 43.8 / 67.8 ms | 17.2 / 28.4 / 48 ms |
+| Same scenario: browser intervals over 50.5 ms | 15 | 0 |
+
+The exact packaged runtime also completed Firefox 159's 77.6-second walking/two Save/three Map scenario at HIGH, viewport 1493 x 848, DPR 1.5, player 1045.32 x 783.98 CSS pixels: actual game p95/p99/worst 37/53/76 ms; actual browser 27/40/77 ms. This is a different presentation, not a cross-browser ratio. Startup with the fixed 35-second title-wait protocol remained about 50-52 seconds in control/candidate/restarts.
+
+Both exact-package browsers passed full close/reopen without reseeding: avatar, balances, island/inventory, animals, NPC progress, tutorial, hearts, cards, bridges, quests and checksums restored. Actual Firefox Export UI downloaded a valid backup. Dynamic NPC positions, hunger and contextual hints continue normally. Thirteen rendering cases per browser were pixel-identical to the control, covering masks, blur, growing blur, multiply, bitmap draws and fractional clip/resize/rotation/filter transitions. An initial Firefox control capture before its first painted frame was rejected; four settled control/candidate captures with explicit colored-content checks matched. Fifteen focused Rust correctness tests passed.
+
+The exact tested/published WASM SHA-256 is `ad9db6ce4bc4db575bcbeac75d3d87e0c38f399c8ac57f65d8486cecdcddf482`. [Build/source/artifact provenance](../site/ruffle/provenance.json) records all hashes. Privacy cleanup changed only equal-length source paths in WASM data, not executable code. The idle texture estimate cap is 256 MiB; active textures, game assets, staging buffers and driver memory are outside it.
+
+Limits: an earlier same-source Firefox run had a 245 ms first-open Map browser gap (205 ms game gap), without a coincident slow GL call. It did not recur in the exact packaged repeat, but its cause remains unattributed. Readbacks still exist; zero jitter, every machine and complete ending/late-game coverage are not promised. Native WPR kernel recording was denied by OS profiling policy; browser/API traces were used instead. This repair requires the custom runtime on the host. The game SWF/delta/save format stay unchanged; save and refresh an already-open tab to load the update.
+
+## Earlier November 3 SWF repair (stock runtime)
+
+At that stage, the published build still stuttered in a progressed island scene. Short nominal-30-FPS samples had missed it. That SWF repair retained stock Ruffle, HIGH quality, the original zero-radius/nonzero screen filters, exact pixel item hit testing and the authored 30-FPS clock. No custom runtime was shipped at that earlier stage.
 
 Two causes were isolated with alternating off/on comparisons in the same loaded scene, at viewport 1471 x 835, DPR 1.5, Windows 11 / Intel Iris Xe on AC:
 

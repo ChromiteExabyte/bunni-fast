@@ -1,0 +1,734 @@
+--- a/core/src/display_object.rs
++++ b/core/src/display_object.rs
+@@ -31,6 +31,7 @@
+ mod avm1_button;
+ mod avm2_button;
+ mod bitmap;
++mod bitmap_cache_bounds;
+ mod container;
+ mod edit_text;
+ mod graphic;
+@@ -107,6 +108,10 @@
+ 
+     /// The offset used to draw the final bitmap (i.e. if a filter increases the size)
+     draw_offset: Point<i32>,
++
++    /// Relative origin of a clipped capture. A change invalidates the contents
++    /// even if the texture dimensions and display transform are unchanged.
++    clipped_capture_origin: Option<(i64, i64)>,
+ 
+     /// The current contents of the cache, if any. Values are post-filters.
+     bitmap: Option<BitmapInfo>,
+@@ -983,7 +988,7 @@
+     let cache_info = if context.use_bitmap_cache && this.is_bitmap_cached() {
+         let mut cache_info: Option<DrawCacheInfo> = None;
+         let base_transform = context.transform_stack.transform();
+-        let bounds: Rectangle<Twips> = this.render_bounds_with_transform(
++        let mut bounds: Rectangle<Twips> = this.render_bounds_with_transform(
+             &base_transform.matrix,
+             false, // we want to do the filter growth for this object ourselves, to know the offsets
+             &context.stage.view_matrix(),
+@@ -991,9 +996,61 @@
+         let name = this.name();
+         let mut filters: Vec<Filter> = this.filters().to_owned();
+         let swf_version = this.swf_version();
++        // Retain the cache and its compositing. Only reduce its capture extent
++        // when every own filter is an ineffective blur and scrollRect will clip it.
++        // Nonzero filters, rotations, perspective and scrolling origins are unchanged.
++        let bounded_capture = !filters.is_empty()
++            && filters
++                .iter()
++                .all(|filter| matches!(filter, Filter::BlurFilter(blur) if blur.impotent()));
++        let mut clipped_capture_origin = None;
+         filters.retain(|f| !f.impotent());
++        if bounded_capture
++            && base_transform.matrix.b == 0.0
++            && base_transform.matrix.c == 0.0
++            && base_transform.matrix.a.is_finite()
++            && base_transform.matrix.d.is_finite()
++            && base_transform.matrix.a > 0.0
++            && base_transform.matrix.d > 0.0
++            && base_transform.perspective_projection.is_none()
++            && base_transform.tz == 0.0
++            && let Some(rect) = this.scroll_rect()
++            && rect.x_min == Twips::ZERO
++            && rect.y_min == Twips::ZERO
++        {
++            let clip = base_transform.matrix * rect;
++            if let Some(cropped) = bitmap_cache_bounds::crop_on_original_grid(
++                [
++                    bounds.x_min.get(),
++                    bounds.y_min.get(),
++                    bounds.x_max.get(),
++                    bounds.y_max.get(),
++                ],
++                [
++                    clip.x_min.get(),
++                    clip.y_min.get(),
++                    clip.x_max.get(),
++                    clip.y_max.get(),
++                ],
++            ) {
++                bounds = Rectangle {
++                    x_min: Twips::new(cropped[0]),
++                    y_min: Twips::new(cropped[1]),
++                    x_max: Twips::new(cropped[2]),
++                    y_max: Twips::new(cropped[3]),
++                };
++                clipped_capture_origin = Some((
++                    i64::from(bounds.x_min.get()) - i64::from(base_transform.matrix.tx.get()),
++                    i64::from(bounds.y_min.get()) - i64::from(base_transform.matrix.ty.get()),
++                ));
++            }
++        }
+ 
+         if let Some(cache) = &mut *this.base().bitmap_cache_mut() {
++            if cache.clipped_capture_origin != clipped_capture_origin {
++                cache.make_dirty();
++                cache.clipped_capture_origin = clipped_capture_origin;
++            }
+             let width = bounds.width().to_pixels().ceil().max(0.0);
+             let height = bounds.height().to_pixels().ceil().max(0.0);
+             if width <= u16::MAX as f64 && height <= u16::MAX as f64 {
+--- /dev/null
++++ b/core/src/display_object/bitmap_cache_bounds.rs
+@@ -0,0 +1,86 @@
++//! Crop an offscreen capture on its ORIGINAL physical-pixel grid.
++//! Inputs/outputs are twips after the complete display/view transform.
++pub(crate) fn crop_on_original_grid(bounds: [i32; 4], clip: [i32; 4]) -> Option<[i32; 4]> {
++    if bounds[0] >= bounds[2] || bounds[1] >= bounds[3] || clip[0] >= clip[2] || clip[1] >= clip[3]
++    {
++        return None;
++    }
++    let mut result = bounds;
++    for axis in 0..2 {
++        let origin = i64::from(bounds[axis]);
++        let low = i64::from(clip[axis]) - 20; // one physical pixel for bilinear/MSAA edges
++        let high = i64::from(clip[axis + 2]) + 20;
++        let start = origin + (low - origin).div_euclid(20) * 20;
++        let end = origin - (-(high - origin)).div_euclid(20) * 20;
++        result[axis] = origin.max(start).min(i64::from(bounds[axis + 2])) as i32;
++        result[axis + 2] = i64::from(bounds[axis + 2]).min(end).max(origin) as i32;
++    }
++    (result[0] < result[2] && result[1] < result[3]).then_some(result)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn keeps_subpixel_phase_and_guard_band() {
++        let old = [-17496, -6804, 42480, 21600];
++        let new = crop_on_original_grid(old, [0, 0, 28800, 21600]).unwrap();
++        assert_eq!(new, [-36, -24, 28824, 21600]);
++        assert_eq!((new[0] - old[0]) % 20, 0);
++        assert_eq!((new[1] - old[1]) % 20, 0);
++    }
++    #[test]
++    fn smaller_content_is_unchanged() {
++        let old = [35, 42, 500, 600];
++        assert_eq!(crop_on_original_grid(old, [0, 0, 8000, 6000]), Some(old));
++    }
++    #[test]
++    fn empty_and_disjoint_bounds_fall_back() {
++        assert_eq!(crop_on_original_grid([0, 0, 0, 20], [0, 0, 100, 100]), None);
++        assert_eq!(
++            crop_on_original_grid([200, 200, 400, 400], [0, 0, 100, 100]),
++            None
++        );
++    }
++    #[test]
++    fn extreme_disjoint_coordinates_fall_back_without_wrapping() {
++        assert_eq!(
++            crop_on_original_grid(
++                [i32::MAX - 10, i32::MAX - 10, i32::MAX, i32::MAX],
++                [i32::MIN, i32::MIN, i32::MIN + 100, i32::MIN + 100]
++            ),
++            None
++        );
++        assert_eq!(
++            crop_on_original_grid(
++                [i32::MIN, i32::MIN, i32::MIN + 10, i32::MIN + 10],
++                [i32::MAX - 100, i32::MAX - 100, i32::MAX, i32::MAX]
++            ),
++            None
++        );
++    }
++    #[test]
++    fn extreme_coordinates_do_not_overflow() {
++        let result =
++            crop_on_original_grid([i32::MIN, i32::MIN, i32::MAX, i32::MAX], [-20, -20, 20, 20])
++                .unwrap();
++        assert!(result[0] <= -40 && result[2] >= 40);
++        assert!(result[1] <= -40 && result[3] >= 40);
++    }
++    #[test]
++    fn clipped_bounds_stay_inside_original_on_whole_pixel_offsets() {
++        for x in -45..0 {
++            for y in -45..0 {
++                let old = [x, y, 3200, 2400];
++                let new = crop_on_original_grid(old, [0, 0, 1600, 1200]).unwrap();
++                assert!(new[0] >= old[0] && new[1] >= old[1]);
++                assert!(new[2] <= old[2] && new[3] <= old[3]);
++                assert_eq!((new[0] - old[0]) % 20, 0);
++                assert_eq!((new[1] - old[1]) % 20, 0);
++                assert!(new[0] == old[0] || new[0] <= -20);
++                assert!(new[1] == old[1] || new[1] <= -20);
++                assert!(new[2] >= 1620 && new[3] >= 1220);
++            }
++        }
++    }
++}
+--- a/render/wgpu/src/backend.rs
++++ b/render/wgpu/src/backend.rs
+@@ -79,6 +79,16 @@
+     viewport_scale_factor: f64,
+     texture_pool: TexturePool,
+     offscreen_texture_pool: TexturePool,
++    // BitmapData operations keep the stock single-submission lifetime. They can
++    // synchronously read results back and should not retain scratch targets.
++    bitmap_texture_pool: TexturePool,
++    bitmap_draw_history: fnv::FnvHashMap<
++        usize,
++        (
++            std::sync::Weak<dyn ruffle_render::bitmap::BitmapHandleImpl>,
++            crate::texture_cache::DrawHistory,
++        ),
++    >,
+     pub(crate) offscreen_buffer_pool: Arc<BufferPool<wgpu::Buffer, BufferDimensions>>,
+     dynamic_transforms: DynamicTransforms,
+     active_frame: ActiveFrame,
+@@ -217,6 +227,33 @@
+ }
+ 
+ impl<T: RenderTarget> WgpuRenderBackend<T> {
++    fn reuse_bitmap_scratch(&mut self, handle: &BitmapHandle) -> bool {
++        let texture = as_texture(handle);
++        if u64::from(texture.texture.width()) * u64::from(texture.texture.height()) > 1024 * 1024 {
++            return false;
++        }
++        let key = Arc::as_ptr(&handle.0) as *const () as usize;
++        if self.bitmap_draw_history.len() >= 64 && !self.bitmap_draw_history.contains_key(&key) {
++            self.bitmap_draw_history
++                .retain(|_, (owner, _)| owner.strong_count() > 0);
++            if self.bitmap_draw_history.len() >= 64 {
++                let oldest = self
++                    .bitmap_draw_history
++                    .iter()
++                    .min_by_key(|(_, (_, history))| history.last_frame())
++                    .map(|(key, _)| *key);
++                if let Some(oldest) = oldest {
++                    self.bitmap_draw_history.remove(&oldest);
++                }
++            }
++        }
++        let (_, history) = self
++            .bitmap_draw_history
++            .entry(key)
++            .or_insert_with(|| (Arc::downgrade(&handle.0), Default::default()));
++        history.should_reuse(self.offscreen_texture_pool.frame_index())
++    }
++
+     pub fn new(descriptors: Arc<Descriptors>, target: T) -> Result<Self, Error> {
+         if target.width() > descriptors.limits.max_texture_dimension_2d
+             || target.height() > descriptors.limits.max_texture_dimension_2d
+@@ -275,7 +312,9 @@
+             shape_tessellator: ShapeTessellator::new(),
+             viewport_scale_factor: 1.0,
+             texture_pool: TexturePool::new(),
+-            offscreen_texture_pool: TexturePool::new(),
++            offscreen_texture_pool: TexturePool::new_cached(),
++            bitmap_texture_pool: TexturePool::new(),
++            bitmap_draw_history: Default::default(),
+             offscreen_buffer_pool: Arc::new(offscreen_buffer_pool),
+             dynamic_transforms: transforms,
+             active_frame,
+@@ -668,7 +707,8 @@
+ 
+         self.active_frame
+             .submit_for_target(&self.descriptors, &self.target, frame_output);
+-        self.offscreen_texture_pool = TexturePool::new();
++        self.offscreen_texture_pool.trim_for_next_frame();
++        self.bitmap_texture_pool = TexturePool::new();
+         self.profiler
+             .end_frame()
+             .expect("Frame should end successfully");
+@@ -821,6 +861,7 @@
+             texture.texture.height(),
+             wgpu::TextureFormat::Rgba8Unorm,
+         );
++        let reuse = self.reuse_bitmap_scratch(&handle);
+         surface.draw_commands_and_copy_to(
+             frame_output.view(),
+             RenderTargetMode::FreshWithTexture(target.get_texture()),
+@@ -833,7 +874,11 @@
+             &self.meshes,
+             commands,
+             LayerRef::Current,
+-            &mut self.offscreen_texture_pool,
++            if reuse {
++                &mut self.offscreen_texture_pool
++            } else {
++                &mut self.bitmap_texture_pool
++            },
+         );
+ 
+         self.active_frame.maybe_flush(&self.descriptors);
+@@ -885,10 +930,15 @@
+             buffer: None,
+         };
+ 
++        let reuse = self.reuse_bitmap_scratch(&destination);
+         let applied_filter = self.descriptors.filters.apply(
+             &self.descriptors,
+             &mut self.active_frame.command_encoder,
+-            &mut self.offscreen_texture_pool,
++            if reuse {
++                &mut self.offscreen_texture_pool
++            } else {
++                &mut self.bitmap_texture_pool
++            },
+             &mut self.active_frame.staging_belt,
+             FilterSource {
+                 texture: &source_texture.texture,
+--- a/render/wgpu/src/buffer_pool.rs
++++ b/render/wgpu/src/buffer_pool.rs
+@@ -1,22 +1,60 @@
+ use crate::descriptors::Descriptors;
+ use crate::globals::Globals;
++use crate::texture_cache::{CacheBudget, CachePolicy, IdlePool, texture_storage_bytes};
+ use fnv::FnvHashMap;
+ use std::fmt::{Debug, Formatter};
+ use std::ops::Deref;
+ use std::sync::{Arc, Mutex, Weak};
+ 
+-type PoolInner<T> = Mutex<Vec<T>>;
++type PoolInner<T> = Mutex<IdlePool<T>>;
+ type Constructor<Type, Description> = Box<dyn Fn(&Descriptors, &Description) -> Type>;
+ 
+ #[derive(Debug, Default)]
+ pub struct TexturePool {
+     pools: FnvHashMap<TextureKey, BufferPool<(wgpu::Texture, wgpu::TextureView), AlwaysCompatible>>,
+     globals_cache: FnvHashMap<GlobalsKey, Arc<Globals>>,
++    cache_budget: Option<Arc<CacheBudget>>,
++    last_used: FnvHashMap<TextureKey, u64>,
++    frame: u64,
+ }
+ 
+ impl TexturePool {
+     pub fn new() -> Self {
+         Default::default()
++    }
++
++    /// Retain only idle offscreen resources, never more than 256 MiB estimated storage.
++    pub fn new_cached() -> Self {
++        Self {
++            cache_budget: Some(Arc::new(CacheBudget::new(256 * 1024 * 1024))),
++            ..Self::new()
++        }
++    }
++
++    pub fn frame_index(&self) -> u64 {
++        self.frame
++    }
++
++    /// Bound key metadata and retain only sizes used in the current frame.
++    pub fn trim_for_next_frame(&mut self) {
++        let mut recent: Vec<_> = self
++            .last_used
++            .iter()
++            .filter(|(_, last)| **last == self.frame)
++            .map(|(key, last)| (*key, *last))
++            .collect();
++        recent.sort_unstable_by_key(|(_, last)| std::cmp::Reverse(*last));
++        recent.truncate(64);
++        self.pools
++            .retain(|key, _| recent.iter().any(|(recent, _)| recent == key));
++        self.last_used.retain(|key, _| self.pools.contains_key(key));
++        self.globals_cache.retain(|key, _| {
++            recent.iter().any(|(texture, _)| {
++                texture.size.width == key.viewport_width
++                    && texture.size.height == key.viewport_height
++            })
++        });
++        self.frame = self.frame.saturating_add(1);
+     }
+ 
+     pub fn get_texture(
+@@ -33,6 +71,14 @@
+             format,
+             sample_count,
+         };
++        if self.cache_budget.is_some() {
++            self.last_used.insert(key, self.frame);
++        }
++        let cache_policy = self.cache_budget.as_ref().map(|budget| CachePolicy {
++            budget: budget.clone(),
++            entry_bytes: key.storage_bytes(),
++            max_entries: 4,
++        });
+         let pool = self.pools.entry(key).or_insert_with(|| {
+             let label = if cfg!(feature = "render_debug_labels") {
+                 use std::sync::atomic::{AtomicU32, Ordering};
+@@ -42,20 +88,23 @@
+             } else {
+                 None
+             };
+-            BufferPool::new(Box::new(move |descriptors, _description| {
+-                let texture = descriptors.device.create_texture(&wgpu::TextureDescriptor {
+-                    label: label.as_deref(),
+-                    size,
+-                    mip_level_count: 1,
+-                    sample_count,
+-                    dimension: wgpu::TextureDimension::D2,
+-                    format,
+-                    view_formats: &[format],
+-                    usage,
+-                });
+-                let view = texture.create_view(&Default::default());
+-                (texture, view)
+-            }))
++            BufferPool::with_cache_policy(
++                Box::new(move |descriptors, _description| {
++                    let texture = descriptors.device.create_texture(&wgpu::TextureDescriptor {
++                        label: label.as_deref(),
++                        size,
++                        mip_level_count: 1,
++                        sample_count,
++                        dimension: wgpu::TextureDimension::D2,
++                        format,
++                        view_formats: &[format],
++                        usage,
++                    });
++                    let view = texture.create_view(&Default::default());
++                    (texture, view)
++                }),
++                cache_policy,
++            )
+         });
+         pool.take(descriptors, AlwaysCompatible)
+     }
+@@ -91,6 +140,32 @@
+     sample_count: u32,
+ }
+ 
++impl TextureKey {
++    fn storage_bytes(&self) -> usize {
++        let (block_width, block_height) = self.format.block_dimensions();
++        // Depth24Plus has implementation-defined storage. Conservatively account
++        // eight bytes for combined depth/stencil and sixteen for any unknown format.
++        let block_bytes = self
++            .format
++            .block_copy_size(None)
++            .unwrap_or(match self.format {
++                wgpu::TextureFormat::Depth24Plus => 4,
++                wgpu::TextureFormat::Depth24PlusStencil8
++                | wgpu::TextureFormat::Depth32FloatStencil8 => 8,
++                _ => 16,
++            });
++        texture_storage_bytes(
++            self.size.width,
++            self.size.height,
++            self.size.depth_or_array_layers,
++            block_width,
++            block_height,
++            block_bytes,
++            self.sample_count,
++        )
++    }
++}
++
+ #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+ struct GlobalsKey {
+     viewport_width: u32,
+@@ -133,8 +208,15 @@
+ 
+ impl<Type, Description: BufferDescription> BufferPool<Type, Description> {
+     pub fn new(constructor: Constructor<Type, Description>) -> Self {
++        Self::with_cache_policy(constructor, None)
++    }
++
++    fn with_cache_policy(
++        constructor: Constructor<Type, Description>,
++        policy: Option<CachePolicy>,
++    ) -> Self {
+         Self {
+-            available: Arc::new(Mutex::new(vec![])),
++            available: Arc::new(Mutex::new(IdlePool::new(policy))),
+             constructor,
+         }
+     }
+@@ -149,8 +231,8 @@
+             .lock()
+             .expect("Should not be able to lock recursively");
+         let mut best: Option<(Description::Cost, usize)> = None;
+-        for i in 0..guard.len() {
+-            if let Some(cost) = description.cost_to_use(&guard[i].1) {
++        for i in 0..guard.entries.len() {
++            if let Some(cost) = description.cost_to_use(&guard.entries[i].1) {
+                 if let Some(best) = &mut best {
+                     if best.0 > cost {
+                         *best = (cost, i);
+--- a/render/wgpu/src/lib.rs
++++ b/render/wgpu/src/lib.rs
+@@ -40,6 +40,7 @@
+ mod blend;
+ mod buffer_builder;
+ mod buffer_pool;
++mod texture_cache;
+ #[cfg(feature = "clap")]
+ pub mod clap;
+ pub mod descriptors;
+--- /dev/null
++++ b/render/wgpu/src/texture_cache.rs
+@@ -0,0 +1,250 @@
++//! Admission-bounded idle resource cache. Leased resources are not counted.
++use std::sync::Arc;
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++#[derive(Debug)]
++pub(crate) struct CacheBudget {
++    used: AtomicUsize,
++    limit: usize,
++}
++
++impl CacheBudget {
++    pub(crate) fn new(limit: usize) -> Self {
++        Self {
++            used: AtomicUsize::new(0),
++            limit,
++        }
++    }
++
++    fn reserve(&self, bytes: usize) -> bool {
++        let mut used = self.used.load(Ordering::Relaxed);
++        loop {
++            let Some(next) = used.checked_add(bytes).filter(|next| *next <= self.limit) else {
++                return false;
++            };
++            match self
++                .used
++                .compare_exchange_weak(used, next, Ordering::Relaxed, Ordering::Relaxed)
++            {
++                Ok(_) => return true,
++                Err(actual) => used = actual,
++            }
++        }
++    }
++
++    fn release(&self, bytes: usize) {
++        let previous = self.used.fetch_sub(bytes, Ordering::Relaxed);
++        debug_assert!(previous >= bytes);
++    }
++}
++
++#[derive(Clone, Debug)]
++pub(crate) struct CachePolicy {
++    pub(crate) budget: Arc<CacheBudget>,
++    pub(crate) entry_bytes: usize,
++    pub(crate) max_entries: usize,
++}
++
++/// All mutations go through these methods so late lease returns obey the same cap.
++pub(crate) struct IdlePool<T> {
++    pub(crate) entries: Vec<T>,
++    policy: Option<CachePolicy>,
++}
++
++impl<T> IdlePool<T> {
++    pub(crate) fn new(policy: Option<CachePolicy>) -> Self {
++        Self {
++            entries: Vec::new(),
++            policy,
++        }
++    }
++
++    pub(crate) fn push(&mut self, item: T) {
++        if let Some(policy) = &self.policy
++            && (self.entries.len() >= policy.max_entries
++                || !policy.budget.reserve(policy.entry_bytes))
++        {
++            return;
++        }
++        self.entries.push(item);
++    }
++
++    pub(crate) fn swap_remove(&mut self, index: usize) -> T {
++        let item = self.entries.swap_remove(index);
++        if let Some(policy) = &self.policy {
++            policy.budget.release(policy.entry_bytes);
++        }
++        item
++    }
++}
++
++impl<T> Drop for IdlePool<T> {
++    fn drop(&mut self) {
++        if let Some(policy) = &self.policy {
++            policy
++                .budget
++                .release(policy.entry_bytes * self.entries.len());
++        }
++    }
++}
++
++/// Saturating accounting includes compressed blocks, array layers and MSAA samples.
++pub(crate) fn texture_storage_bytes(
++    width: u32,
++    height: u32,
++    layers: u32,
++    block_width: u32,
++    block_height: u32,
++    block_bytes: u32,
++    samples: u32,
++) -> usize {
++    let bytes = u64::from(width.div_ceil(block_width))
++        .saturating_mul(u64::from(height.div_ceil(block_height)))
++        .saturating_mul(u64::from(layers))
++        .saturating_mul(u64::from(block_bytes))
++        .saturating_mul(u64::from(samples));
++    usize::try_from(bytes).unwrap_or(usize::MAX)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::Mutex;
++
++    fn pool(budget: &Arc<CacheBudget>, cost: usize, count: usize) -> IdlePool<u32> {
++        IdlePool::new(Some(CachePolicy {
++            budget: budget.clone(),
++            entry_bytes: cost,
++            max_entries: count,
++        }))
++    }
++
++    #[test]
++    fn global_budget_and_per_key_limit_both_apply() {
++        let budget = Arc::new(CacheBudget::new(100));
++        let mut a = pool(&budget, 30, 2);
++        let mut b = pool(&budget, 30, 4);
++        a.push(1);
++        a.push(2);
++        a.push(3);
++        b.push(4);
++        b.push(5);
++        assert_eq!(a.entries, vec![1, 2]);
++        assert_eq!(b.entries, vec![4]);
++        assert_eq!(budget.used.load(Ordering::Relaxed), 90);
++        assert_eq!(a.swap_remove(0), 1);
++        b.push(5);
++        assert_eq!(budget.used.load(Ordering::Relaxed), 90);
++        drop(a);
++        drop(b);
++        assert_eq!(budget.used.load(Ordering::Relaxed), 0);
++    }
++
++    #[test]
++    fn oversized_and_overflow_costs_are_never_retained() {
++        let budget = Arc::new(CacheBudget::new(100));
++        let mut a = pool(&budget, usize::MAX, 4);
++        a.push(1);
++        assert!(a.entries.is_empty());
++        assert!(!budget.reserve(usize::MAX));
++        assert_eq!(budget.used.load(Ordering::Relaxed), 0);
++    }
++
++    #[test]
++    fn late_returns_obey_budget_and_evicted_pool_cannot_resurrect() {
++        let budget = Arc::new(CacheBudget::new(30));
++        let a = Arc::new(Mutex::new(pool(&budget, 30, 4)));
++        let weak = Arc::downgrade(&a);
++        let mut b = pool(&budget, 30, 4);
++        b.push(1);
++        weak.upgrade().unwrap().lock().unwrap().push(2);
++        assert!(a.lock().unwrap().entries.is_empty());
++        drop(b);
++        a.lock().unwrap().push(3);
++        assert_eq!(budget.used.load(Ordering::Relaxed), 30);
++        drop(a);
++        assert!(weak.upgrade().is_none());
++        assert_eq!(budget.used.load(Ordering::Relaxed), 0);
++    }
++
++    #[test]
++    fn texture_accounting_includes_samples_layers_and_block_rounding() {
++        assert_eq!(texture_storage_bytes(3026, 1448, 1, 1, 1, 4, 4), 70_106_368);
++        assert_eq!(texture_storage_bytes(5, 7, 2, 4, 4, 16, 1), 128);
++        assert_eq!(
++            texture_storage_bytes(u32::MAX, u32::MAX, u32::MAX, 1, 1, 16, 4),
++            usize::MAX
++        );
++    }
++
++    #[test]
++    fn unbounded_pool_preserves_original_semantics() {
++        let mut a = IdlePool::new(None);
++        for i in 0..100 {
++            a.push(i);
++        }
++        assert_eq!(a.entries.len(), 100);
++        assert_eq!(a.swap_remove(12), 12);
++        assert_eq!(a.entries.len(), 99);
++    }
++}
++
++/// Admit recurring bitmap target sizes, not one-time map/asset construction.
++#[derive(Debug, Default)]
++pub(crate) struct DrawHistory {
++    last_frame: Option<u64>,
++    reused_this_frame: bool,
++}
++
++impl DrawHistory {
++    pub(crate) fn should_reuse(&mut self, frame: u64) -> bool {
++        if self.last_frame != Some(frame) {
++            self.reused_this_frame = self
++                .last_frame
++                .and_then(|last| frame.checked_sub(last))
++                .is_some_and(|age| age > 0 && age <= 4);
++            self.last_frame = Some(frame);
++        }
++        self.reused_this_frame
++    }
++
++    pub(crate) fn last_frame(&self) -> u64 {
++        self.last_frame.unwrap_or(0)
++    }
++}
++
++#[cfg(test)]
++mod history_tests {
++    use super::DrawHistory;
++    #[test]
++    fn one_time_and_same_frame_draws_keep_stock_lifetime() {
++        let mut history = DrawHistory::default();
++        for _ in 0..100 {
++            assert!(!history.should_reuse(100));
++        }
++    }
++    #[test]
++    fn recurring_draws_are_reused_within_and_between_frames() {
++        let mut history = DrawHistory::default();
++        assert!(!history.should_reuse(100));
++        assert!(history.should_reuse(102));
++        assert!(history.should_reuse(102));
++        assert!(history.should_reuse(106));
++    }
++    #[test]
++    fn long_gap_returns_to_stock_lifetime_then_warms_again() {
++        let mut history = DrawHistory::default();
++        assert!(!history.should_reuse(1));
++        assert!(history.should_reuse(2));
++        assert!(!history.should_reuse(50));
++        assert!(!history.should_reuse(50));
++        assert!(history.should_reuse(51));
++    }
++    #[test]
++    fn frame_counter_wrap_falls_back_safely() {
++        let mut history = DrawHistory::default();
++        assert!(!history.should_reuse(u64::MAX));
++        assert!(!history.should_reuse(0));
++        assert!(history.should_reuse(1));
++    }
++}
