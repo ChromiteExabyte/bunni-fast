@@ -10,6 +10,7 @@ The target is the original **30 game updates per second**, at **HIGH quality** w
 
 - Build the island map in one GPU pass instead of thousands of separate bitmap draws.
 - Render the world through pooled display objects and a bounded map viewport, avoiding repeated screen-bitmap GPU/CPU transfers and huge filtered textures.
+- Reuse original Map label artwork instead of recreating text/vector objects every frame. Skip fully offscreen bitmap quads before the screen filter.
 - Accelerate avatar land queries with a conservative spatial index. Keep the original compiled shore-movement fallback and exact circle predicate.
 - Replace the unavailable account-server save flow with browser-local saves, autosaving every 15 seconds between complete, unpaused updates. Manual **Save** also exports/imports portable JSON backups.
 - Use Ruffle's `wgpu-webgl` backend by default. On the tested system, WebGPU had a Firefox staging-buffer panic and a Chrome bitmap readback stall. The SWF alone cannot select a host player's backend.
@@ -39,7 +40,9 @@ Tests use actual game-world screenshots, valid viewports and game-update counter
 
 Chrome 156 and Firefox 159 on Windows 11 / Intel Iris Xe have been tested at HIGH quality using `wgpu-webgl`. Persistent progress, browser restarts, portable backups and heart-animation recovery were checked. The released patch also passed 300 movement comparisons against the original compiled movement method with zero mismatches.
 
-The latest 37-second Chrome standing/walking run used a 1920 x 1144 viewport and a 1440 x 1080 game presentation. Game-update CPU time was 1.8 ms at the 95th percentile, 10.6 ms worst. Occasional wall-clock frame gaps approached 50 ms; a blank-page reference also showed refresh-sized callback delays. These results establish a large improvement, not a guarantee of zero jitter on every machine or a full-game completion test.
+Matched comparisons found a Map-label allocation storm: the original path created 960 label objects and over 2,100 GPU textures in eight seconds. Reusing the same artwork reduced both to almost zero and improved actual browser frame p95 from 54-74 ms to about 26 ms at the same HIGH quality. Offscreen culling also reduced oversized filtered bounds. The final Chrome 1440 x 1080 walking/menu test averaged 30.00 game FPS; Firefox averaged 29.96 in its final scenario. Both passed full browser restart and save checks.
+
+Occasional longer frames remain, including a measured GPU bitmap readback around 101 ms in a longer interaction run. This is not a guarantee of zero jitter or a full-game completion test. After an update, **Save, then refresh** the existing page to load the new code. Save records keep their existing format.
 
 ## Building
 

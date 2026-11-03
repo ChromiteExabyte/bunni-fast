@@ -16,6 +16,7 @@ package MapItems
    import World.World;
    import flash.display.*;
    import flash.geom.*;
+   import flash.utils.Dictionary;
 
    public class GenericItem
    {
@@ -57,6 +58,29 @@ package MapItems
       public var mAlpha:Number = 1;
 
       public var mName:String;
+
+      // Keep the inherited instance layout unchanged for original game classes.
+      private static var mMapLabels:Dictionary = new Dictionary(true);
+      private static var mCacheMapLabels:Boolean = true;
+      private static var mMapLabelCreations:int = 0;
+
+      public static function setMapLabelCache(enabled:Boolean) : Object
+      {
+         mCacheMapLabels = enabled;
+         return {enabled:mCacheMapLabels,created:mMapLabelCreations};
+      }
+
+      private static function freezeMapLabel(node:DisplayObject) : void
+      {
+         // The original recreated the symbol at frame 1 on every draw.
+         if(node is MovieClip) MovieClip(node).gotoAndStop(1);
+         if(node is DisplayObjectContainer)
+         {
+            var container:DisplayObjectContainer = node as DisplayObjectContainer;
+            for(var i:int = 0; i < container.numChildren; ++i) freezeMapLabel(container.getChildAt(i));
+         }
+      }
+
 
       public var mItemID:int;
 
@@ -185,19 +209,26 @@ package MapItems
             if(this.mName)
             {
                _loc3_ = Land.mScreenBitmapData.width / Land.mEntireMap.width;
-               if(this is AvatarItem)
+               var cached:Object = mCacheMapLabels ? mMapLabels[this] : null;
+               _loc2_ = cached != null ? cached.clip : null;
+               if(_loc2_ == null)
                {
-                  _loc2_ = new AvatarText();
+                  if(this is AvatarItem) _loc2_ = new AvatarText();
+                  else if(this is TowerItem || this is CastleItem || this is StoreBuildingItem) _loc2_ = new BuildingText();
+                  else _loc2_ = new CharacterText();
+                  ++mMapLabelCreations;
+                  if(mCacheMapLabels)
+                  {
+                     cached = {clip:_loc2_,text:null};
+                     mMapLabels[this] = cached;
+                     freezeMapLabel(_loc2_);
+                  }
                }
-               else if(this is TowerItem || this is CastleItem || this is StoreBuildingItem)
+               if(!mCacheMapLabels || cached.text != this.mName)
                {
-                  _loc2_ = new BuildingText();
+                  _loc2_.mLabel.text = this.mName;
+                  if(mCacheMapLabels) cached.text = this.mName;
                }
-               else
-               {
-                  _loc2_ = new CharacterText();
-               }
-               _loc2_.mLabel.text = this.mName;
                _loc4_ = new Matrix();
                this.drawx = (this.x + Land.WORLD_INSET / 2) * _loc3_;
                this.drawy = (this.y / 2 + Land.WORLD_INSET / 2) * _loc3_;

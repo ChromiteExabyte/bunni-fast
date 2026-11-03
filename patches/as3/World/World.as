@@ -212,6 +212,8 @@ package World
             {
                ExternalInterface.addCallback("bunniBenchQuality",this.benchQuality);
                ExternalInterface.addCallback("bunniBenchRenderInfo",Land.renderInfo);
+               ExternalInterface.addCallback("bunniBenchMapLabelCache",GenericItem.setMapLabelCache);
+               ExternalInterface.addCallback("bunniBenchCullBitmaps",Land.setBitmapCull);
                ExternalInterface.addCallback("bunniBenchIdentity",Land.setIdentityFilterBypass);
                ExternalInterface.addCallback("bunniBenchPause",this.benchPause);
                ExternalInterface.addCallback("bunniBenchSaveInfo",Save.SaveInfo);

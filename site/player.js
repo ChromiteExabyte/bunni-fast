@@ -60,11 +60,12 @@ async function start() {
   if (local) options = {url:'game/' + swf};
   else if (original) options = {url:archiveBase + 'LandOfBunnies.swf'};
   else {
-    const response = await fetch('patches/manifest.json');
+    const response = await fetch('patches/manifest.json', {cache:'no-cache'});
     if (!response.ok) throw new Error('Could not load the game patch.');
     const manifest = await response.json();
+    window.__bunniBuild = manifest.targetFwsSha256;
     const [source, patch] = await Promise.all([
-      fetchBytes(manifest.sourceUrl), fetchBytes('patches/land-of-bunnies.bpatch.gz'),
+      fetchBytes(manifest.sourceUrl), fetchBytes('patches/land-of-bunnies.bpatch.gz?sha=' + encodeURIComponent(manifest.patchSha256)),
     ]);
     document.getElementById('load-message').textContent = 'Preparing Bunni...';
     options = {data:await BunniPatch.verifiedPatch(source, patch, manifest), swfFileName:'LandOfBunnies.swf'};

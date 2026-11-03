@@ -1535,7 +1535,18 @@ package Land
                filterInfo.push({type:"BlurFilter",blurX:filter.blurX,blurY:filter.blurY,quality:filter.quality});
             }
          }
-         return {boundsWidth:bounds.width,boundsHeight:bounds.height,mapWidth:mEntireMap.width,mapHeight:mEntireMap.height,viewportCopies:mViewportCopies,children:mScreen.numChildren,filters:mScreen.filters.length,filterInfo:filterInfo};
+         var childRows:Array = [];
+         var rawBounds:Rectangle = new Rectangle(0,0,World.SCREEN_WIDTH,World.SCREEN_HEIGHT);
+         for(var i:int = 0; i < mScreen.numChildren; ++i)
+         {
+            var child:DisplayObject = mScreen.getChildAt(i);
+            var r:Rectangle = child.getBounds(mScreen);
+            rawBounds = rawBounds.union(r);
+            var row:Object = {index:i,name:child.name,bounds:[r.x,r.y,r.width,r.height],filters:child.filters.length};
+            if(child is Bitmap && Bitmap(child).bitmapData != null) row.bitmap = [Bitmap(child).bitmapData.width,Bitmap(child).bitmapData.height];
+            childRows.push(row);
+         }
+         return {cullBitmapQuads:mCullBitmapQuads,culledBitmapDraws:mCulledBitmapDraws,rawBounds:[rawBounds.x,rawBounds.y,rawBounds.width,rawBounds.height],childRows:childRows,boundsWidth:bounds.width,boundsHeight:bounds.height,mapWidth:mEntireMap.width,mapHeight:mEntireMap.height,viewportCopies:mViewportCopies,children:mScreen.numChildren,filters:mScreen.filters.length,filterInfo:filterInfo};
       }
 
       private static var mBackground:Shape;
@@ -1591,6 +1602,8 @@ package Land
       // Stand-in for mScreenBitmapData.draw(bitmapData,matrix,colorTransform,blendMode,null,smoothing).
       public static function queue(param1:BitmapData, param2:Matrix = null, param3:ColorTransform = null, param4:String = null, param5:Boolean = false) : void
       {
+         if(mCullBitmapQuads && !bitmapOnScreen(param1,param2)) { ++mCulledBitmapDraws; return; }
+
          var _loc6_:Bitmap = null;
          if(mUsed < mPool.length)
          {
@@ -1701,6 +1714,27 @@ package Land
          step = TestCollision.NextStep(dx,dy,px,py,speed);
          mLastAvatarKey = key; mLastAvatarX = step.x; mLastAvatarY = step.y;
          return step;
+      }
+
+      private static var mCullBitmapQuads:Boolean = true;
+      private static var mCulledBitmapDraws:int = 0;
+      public static function setBitmapCull(enabled:Boolean) : Object
+      {
+         mCullBitmapQuads = enabled;
+         return renderInfo();
+      }
+      private static function bitmapOnScreen(data:BitmapData, m:Matrix) : Boolean
+      {
+         if(m == null) return true;
+         var x0:Number = m.tx;
+         var y0:Number = m.ty;
+         var x1:Number = x0 + data.width*m.a;
+         var y1:Number = y0 + data.width*m.b;
+         var x2:Number = x0 + data.height*m.c;
+         var y2:Number = y0 + data.height*m.d;
+         var x3:Number = x1 + data.height*m.c;
+         var y3:Number = y1 + data.height*m.d;
+         return Math.max(x0,x1,x2,x3) >= -1 && Math.max(y0,y1,y2,y3) >= -1 && Math.min(x0,x1,x2,x3) <= World.SCREEN_WIDTH + 1 && Math.min(y0,y1,y2,y3) <= World.SCREEN_HEIGHT + 1;
       }
 
    }

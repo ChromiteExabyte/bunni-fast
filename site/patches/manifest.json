@@ -3,9 +3,9 @@
   "sourceUrl": "https://archive.org/cors/bunnibunni/LandOfBunnies.swf",
   "sourceSha256": "8bde55e61885d35f5f1f79723a128f2c10adc03af135a43f2856f247d0a7fefe",
   "sourceFwsSha256": "aa0012123e247430ab74e4bba3ccc0766a143df036d83ed7eb557740c31ff5e9",
-  "targetFwsSha256": "f5d61dbf71c51be69b7f024bd06839094b32e4a5c75a6e749ee50939d942e0ca",
-  "patchedSwfSha256": "8e82d2f184e18eccadf9ba1ac588dc07d2088cad41d906608659bccbb5654682",
-  "patchSha256": "e4b79241c91076bf71f05fed77050c1b13444f1eba4d9bb0a2599fc973f4ea4e",
-  "targetLength": 1393232,
+  "targetFwsSha256": "9a95ee9c3eda3f72deea2c10245a871db276e10e5a3a9d00442efe9081c93f26",
+  "patchedSwfSha256": "c59866f927909a534a53c624a40163dab6556869da6d928c48d8cc3c236ee59c",
+  "patchSha256": "5e96f09081a10ceec7b2e5d010b176905efb36ad096678656559a88b520f2576",
+  "targetLength": 1394917,
   "authoredFrameRate": 30
 }
