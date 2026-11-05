@@ -1,3 +1,29 @@
+diff --git a/core/src/bitmap/operations.rs b/core/src/bitmap/operations.rs
+--- a/core/src/bitmap/operations.rs
++++ b/core/src/bitmap/operations.rs
+@@ -1478,6 +1478,7 @@
+         ui: context.ui,
+         transform_stack: &mut transform_stack,
+         is_offscreen: true,
++        cache_clip: None,
+         use_bitmap_cache: false,
+         stage: context.stage,
+     };
+diff --git a/core/src/context.rs b/core/src/context.rs
+--- a/core/src/context.rs
++++ b/core/src/context.rs
+@@ -596,6 +596,10 @@
+     /// Whether we're rendering offscreen. This can disable some logic like Ruffle-side render culling
+     pub is_offscreen: bool,
+ 
++    /// Finite current cache-target bounds, in physical-pixel twips. None leaves
++    /// offscreen inputs unrestricted; stage rendering uses its own viewport.
++    pub cache_clip: Option<Rectangle<Twips>>,
++
+     /// Whether to use cacheAsBitmap, vs drawing everything explicitly
+     pub use_bitmap_cache: bool,
+ 
+diff --git a/core/src/display_object.rs b/core/src/display_object.rs
 --- a/core/src/display_object.rs
 +++ b/core/src/display_object.rs
 @@ -31,6 +31,7 @@
@@ -28,19 +54,20 @@
              &base_transform.matrix,
              false, // we want to do the filter growth for this object ourselves, to know the offsets
              &context.stage.view_matrix(),
-@@ -991,9 +996,61 @@
+@@ -991,9 +996,144 @@
          let name = this.name();
          let mut filters: Vec<Filter> = this.filters().to_owned();
          let swf_version = this.swf_version();
-+        // Retain the cache and its compositing. Only reduce its capture extent
-+        // when every own filter is an ineffective blur and scrollRect will clip it.
-+        // Nonzero filters, rotations, perspective and scrolling origins are unchanged.
-+        let bounded_capture = !filters.is_empty()
++        // Retain cached compositing and the original physical-pixel grid.
++        // Blur captures keep a conservative sampling halo; other filters keep full inputs.
++        let blur_capture = !filters.is_empty()
 +            && filters
 +                .iter()
-+                .all(|filter| matches!(filter, Filter::BlurFilter(blur) if blur.impotent()));
++                .all(|filter| matches!(filter, Filter::BlurFilter(_)));
++        let bounded_capture = blur_capture && filters.iter().all(Filter::impotent);
 +        let mut clipped_capture_origin = None;
          filters.retain(|f| !f.impotent());
++        let mut capture_clip: Option<Rectangle<Twips>> = None;
 +        if bounded_capture
 +            && base_transform.matrix.b == 0.0
 +            && base_transform.matrix.c == 0.0
@@ -54,7 +81,89 @@
 +            && rect.x_min == Twips::ZERO
 +            && rect.y_min == Twips::ZERO
 +        {
-+            let clip = base_transform.matrix * rect;
++            capture_clip = Some(base_transform.matrix * rect);
++        }
++        // Limit blur inputs only when the destination is known. Nested cache
++        // targets have their own physical coordinate system; BitmapData draws
++        // stay unrestricted. Keep a conservative full blur dependency margin.
++        let render_clip = if let Some(clip) = context.cache_clip {
++            Some(clip)
++        } else if !context.is_offscreen {
++            let viewport = context.renderer.viewport_dimensions();
++            Some(Rectangle {
++                x_min: Twips::ZERO,
++                y_min: Twips::ZERO,
++                x_max: Twips::from_pixels(f64::from(viewport.width)),
++                y_max: Twips::from_pixels(f64::from(viewport.height)),
++            })
++        } else {
++            None
++        };
++        // Active blur on scrolling containers keeps its original full input.
++        // Preserve nested-filter rounding there as well as geometric coverage.
++        let mut clip_safe = blur_capture
++            && (bounded_capture || this.scroll_rect().is_none())
++            && render_clip.is_some()
++            && matches!(
++                blend_mode,
++                ExtendedBlendMode::Normal | ExtendedBlendMode::Multiply
++            );
++        let mut ancestor = this.parent();
++        while clip_safe {
++            let Some(parent) = ancestor else { break };
++            clip_safe = parent.blend_mode() == ExtendedBlendMode::Normal
++                && parent.filters().iter().all(Filter::impotent);
++            ancestor = parent.parent();
++        }
++        if clip_safe
++            && base_transform.matrix.a.is_finite()
++            && base_transform.matrix.b.is_finite()
++            && base_transform.matrix.c.is_finite()
++            && base_transform.matrix.d.is_finite()
++            && base_transform.perspective_projection.is_none()
++            && base_transform.tz == 0.0
++            && this
++                .scroll_rect()
++                .is_none_or(|rect| rect.x_min == Twips::ZERO && rect.y_min == Twips::ZERO)
++        {
++            let mut clip = render_clip.expect("Known destination for bounded capture");
++            let stage_matrix = context.stage.view_matrix();
++            let mut pad_x = 0i32;
++            let mut pad_y = 0i32;
++            for filter in &filters {
++                if let Filter::BlurFilter(blur) = filter {
++                    let mut blur = blur.clone();
++                    blur.scale(stage_matrix.a, stage_matrix.d);
++                    pad_x = pad_x
++                        .saturating_add(bitmap_cache_bounds::blur_padding_pixels(
++                            blur.blur_x.to_f64(),
++                            blur.num_passes(),
++                        ))
++                        .min(i32::MAX / 20);
++                    pad_y = pad_y
++                        .saturating_add(bitmap_cache_bounds::blur_padding_pixels(
++                            blur.blur_y.to_f64(),
++                            blur.num_passes(),
++                        ))
++                        .min(i32::MAX / 20);
++                }
++            }
++            clip.x_min = Twips::new(clip.x_min.get().saturating_sub(pad_x * 20));
++            clip.x_max = Twips::new(clip.x_max.get().saturating_add(pad_x * 20));
++            clip.y_min = Twips::new(clip.y_min.get().saturating_sub(pad_y * 20));
++            clip.y_max = Twips::new(clip.y_max.get().saturating_add(pad_y * 20));
++            capture_clip = Some(if let Some(old_clip) = capture_clip {
++                Rectangle {
++                    x_min: old_clip.x_min.max(clip.x_min),
++                    y_min: old_clip.y_min.max(clip.y_min),
++                    x_max: old_clip.x_max.min(clip.x_max),
++                    y_max: old_clip.y_max.min(clip.y_max),
++                }
++            } else {
++                clip
++            });
++        }
++        if let Some(clip) = capture_clip {
 +            if let Some(cropped) = bitmap_cache_bounds::crop_on_original_grid(
 +                [
 +                    bounds.x_min.get(),
@@ -90,9 +199,41 @@
              let width = bounds.width().to_pixels().ceil().max(0.0);
              let height = bounds.height().to_pixels().ceil().max(0.0);
              if width <= u16::MAX as f64 && height <= u16::MAX as f64 {
+@@ -1095,6 +1235,12 @@
+                 ui: context.ui,
+                 transform_stack: &mut transform_stack,
+                 is_offscreen: true,
++                cache_clip: Some(Rectangle {
++                    x_min: Twips::ZERO,
++                    y_min: Twips::ZERO,
++                    x_max: Twips::from_pixels(f64::from(cache_info.bitmap.width)),
++                    y_max: Twips::from_pixels(f64::from(cache_info.bitmap.height)),
++                }),
+                 use_bitmap_cache: true,
+                 stage: context.stage,
+             };
+diff --git a/core/src/display_object/graphic.rs b/core/src/display_object/graphic.rs
+--- a/core/src/display_object/graphic.rs
++++ b/core/src/display_object/graphic.rs
+@@ -148,6 +148,13 @@
+                 // Found a cached handle at a similar scale; reuse it.
+                 return handle;
+             }
++            // register_shape already created this exact scale-1 mesh. Avoid
++            // registering it a second time. Do not widen this to nearby scales:
++            // their original tessellation and cache selection stay unchanged.
++            if current_scale == 1.0 {
++                cache.insert(1.0, base_handle.clone());
++                return base_handle.clone();
++            }
+         }
+ 
+         // Retessellate at the new scale
+diff --git a/core/src/display_object/bitmap_cache_bounds.rs b/core/src/display_object/bitmap_cache_bounds.rs
+new file mode 100644
 --- /dev/null
 +++ b/core/src/display_object/bitmap_cache_bounds.rs
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,122 @@
 +//! Crop an offscreen capture on its ORIGINAL physical-pixel grid.
 +//! Inputs/outputs are twips after the complete display/view transform.
 +pub(crate) fn crop_on_original_grid(bounds: [i32; 4], clip: [i32; 4]) -> Option<[i32; 4]> {
@@ -179,6 +320,54 @@
 +        }
 +    }
 +}
++
++/// Conservative dependency margin for the separable blur shader. Its furthest
++/// bilinear tap is at most ceil((min(size,255)-1)/2) pixels per pass. Use a full
++/// kernel width per pass plus two pixels, leaving its original sampling intact.
++pub(crate) fn blur_padding_pixels(size: f64, passes: u8) -> i32 {
++    if passes == 0 || !size.is_finite() || size <= 1.0 {
++        return 0;
++    }
++    (size.min(255.0).ceil() as i32) * i32::from(passes) + 2
++}
++
++#[cfg(test)]
++mod blur_padding_tests {
++    use super::*;
++    #[test]
++    fn no_op_filters_need_no_margin() {
++        for size in [-10.0, 0.0, 0.5, 1.0, 255.0] {
++            assert_eq!(blur_padding_pixels(size, 0), 0);
++        }
++        assert_eq!(blur_padding_pixels(1.0, 31), 0);
++    }
++    #[test]
++    fn covers_fractional_bilinear_taps_for_every_supported_pass_count() {
++        for passes in 1..=31 {
++            for size in [1.0001_f64, 1.5, 2.0, 3.0, 5.125, 50.9, 142.8558, 255.0, 500.0] {
++                let support = ((size.min(255.0_f64) - 1.0) / 2.0).ceil() as i32 * i32::from(passes);
++                assert!(blur_padding_pixels(size, passes) >= support + 2);
++            }
++        }
++    }
++    #[test]
++    fn follows_shader_strength_clamp_without_unbounded_growth() {
++        assert_eq!(blur_padding_pixels(255.0, 31), 7907);
++        assert_eq!(blur_padding_pixels(32768.0, 31), 7907);
++    }
++}
+diff --git a/core/src/player.rs b/core/src/player.rs
+--- a/core/src/player.rs
++++ b/core/src/player.rs
+@@ -2112,6 +2112,7 @@
+                 ui: this.ui.deref(),
+                 transform_stack: &mut this.transform_stack,
+                 is_offscreen: false,
++                cache_clip: None,
+                 use_bitmap_cache: true,
+                 stage,
+             };
+diff --git a/render/wgpu/src/backend.rs b/render/wgpu/src/backend.rs
 --- a/render/wgpu/src/backend.rs
 +++ b/render/wgpu/src/backend.rs
 @@ -79,6 +79,16 @@
@@ -291,6 +480,7 @@
              &mut self.active_frame.staging_belt,
              FilterSource {
                  texture: &source_texture.texture,
+diff --git a/render/wgpu/src/buffer_pool.rs b/render/wgpu/src/buffer_pool.rs
 --- a/render/wgpu/src/buffer_pool.rs
 +++ b/render/wgpu/src/buffer_pool.rs
 @@ -1,22 +1,60 @@
@@ -469,9 +659,31 @@
                  if let Some(best) = &mut best {
                      if best.0 > cost {
                          *best = (cost, i);
+diff --git a/render/wgpu/src/descriptors.rs b/render/wgpu/src/descriptors.rs
+--- a/render/wgpu/src/descriptors.rs
++++ b/render/wgpu/src/descriptors.rs
+@@ -11,6 +11,9 @@
+ use wgpu::Backend;
+ 
+ pub struct Descriptors {
++    // Immutable RGBA gradient lookup textures only; at most 1 MiB of keys.
++    pub(crate) gradient_textures:
++        Mutex<crate::exact_cache::ExactCache<[u8; 1024], wgpu::TextureView>>,
+     pub wgpu_instance: wgpu::Instance,
+     pub adapter: wgpu::Adapter,
+     pub device: wgpu::Device,
+@@ -48,6 +51,7 @@
+         let backend = adapter.get_info().backend;
+ 
+         Self {
++            gradient_textures: Mutex::new(crate::exact_cache::ExactCache::new(1024)),
+             wgpu_instance: instance,
+             adapter,
+             device,
+diff --git a/render/wgpu/src/lib.rs b/render/wgpu/src/lib.rs
 --- a/render/wgpu/src/lib.rs
 +++ b/render/wgpu/src/lib.rs
-@@ -40,6 +40,7 @@
+@@ -40,10 +40,12 @@
  mod blend;
  mod buffer_builder;
  mod buffer_pool;
@@ -479,6 +691,162 @@
  #[cfg(feature = "clap")]
  pub mod clap;
  pub mod descriptors;
+ mod dynamic_transforms;
++mod exact_cache;
+ mod filters;
+ mod layouts;
+ mod mesh;
+diff --git a/render/wgpu/src/mesh.rs b/render/wgpu/src/mesh.rs
+--- a/render/wgpu/src/mesh.rs
++++ b/render/wgpu/src/mesh.rs
+@@ -318,26 +318,34 @@
+ 
+             colors
+         };
+-        let texture = descriptors.device.create_texture_with_data(
+-            &descriptors.queue,
+-            &wgpu::TextureDescriptor {
+-                label: None,
+-                size: wgpu::Extent3d {
+-                    width: GRADIENT_SIZE as u32,
+-                    height: 1,
+-                    depth_or_array_layers: 1,
+-                },
+-                mip_level_count: 1,
+-                sample_count: 1,
+-                dimension: wgpu::TextureDimension::D2,
+-                format: wgpu::TextureFormat::Rgba8Unorm,
+-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+-                view_formats: &[],
+-            },
+-            wgpu::util::TextureDataOrder::LayerMajor,
+-            &colors[..],
+-        );
+-        let view = texture.create_view(&Default::default());
++        // Only the generated lookup bytes are shared. Per-gradient uniforms,
++        // spread mode, interpolation and shape transforms remain independent.
++        let view = descriptors
++            .gradient_textures
++            .lock()
++            .expect("Gradient cache is not recursively locked")
++            .get_or_insert_with(colors, || {
++                let texture = descriptors.device.create_texture_with_data(
++                    &descriptors.queue,
++                    &wgpu::TextureDescriptor {
++                        label: None,
++                        size: wgpu::Extent3d {
++                            width: GRADIENT_SIZE as u32,
++                            height: 1,
++                            depth_or_array_layers: 1,
++                        },
++                        mip_level_count: 1,
++                        sample_count: 1,
++                        dimension: wgpu::TextureDimension::D2,
++                        format: wgpu::TextureFormat::Rgba8Unorm,
++                        usage: wgpu::TextureUsages::TEXTURE_BINDING,
++                        view_formats: &[],
++                    },
++                    wgpu::util::TextureDataOrder::LayerMajor,
++                    &colors[..],
++                );
++                texture.create_view(&Default::default())
++            });
+ 
+         let buffer_offset = uniform_buffers
+             .add(&[GradientUniforms::from(gradient)])
+diff --git a/render/wgpu/src/exact_cache.rs b/render/wgpu/src/exact_cache.rs
+new file mode 100644
+--- /dev/null
++++ b/render/wgpu/src/exact_cache.rs
+@@ -0,0 +1,86 @@
++// A device-local bounded cache of immutable resources, keyed by exact content.
++use std::collections::HashMap;
++use std::hash::Hash;
++
++pub(crate) struct ExactCache<K, V> {
++    entries: HashMap<K, (V, u64)>,
++    capacity: usize,
++    clock: u64,
++}
++
++impl<K: Eq + Hash + Clone, V: Clone> ExactCache<K, V> {
++    pub(crate) fn new(capacity: usize) -> Self {
++        assert!(capacity > 0);
++        Self {
++            entries: HashMap::new(),
++            capacity,
++            clock: 0,
++        }
++    }
++
++    pub(crate) fn get_or_insert_with(&mut self, key: K, create: impl FnOnce() -> V) -> V {
++        self.clock = self.clock.saturating_add(1);
++        if let Some((value, used)) = self.entries.get_mut(&key) {
++            *used = self.clock;
++            return value.clone();
++        }
++        // Create first: a failed allocation cannot discard the previous entry.
++        let value = create();
++        if self.entries.len() == self.capacity {
++            let oldest = self
++                .entries
++                .iter()
++                .min_by_key(|(_, (_, used))| *used)
++                .map(|(key, _)| key.clone())
++                .expect("Cache is non-empty");
++            self.entries.remove(&oldest);
++        }
++        self.entries.insert(key, (value.clone(), self.clock));
++        value
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::ExactCache;
++    use std::cell::Cell;
++    #[test]
++    fn identical_content_reuses_allocation_but_one_byte_difference_does_not() {
++        let count = Cell::new(0);
++        let create = || {
++            count.set(count.get() + 1);
++            count.get()
++        };
++        let mut cache = ExactCache::new(4);
++        assert_eq!(cache.get_or_insert_with([0, 1, 2, 3], create), 1);
++        assert_eq!(cache.get_or_insert_with([0, 1, 2, 3], create), 1);
++        assert_eq!(cache.get_or_insert_with([0, 1, 2, 4], create), 2);
++        assert_eq!(count.get(), 2);
++    }
++    #[test]
++    fn evicts_least_recently_used_and_bounds_unique_content() {
++        let mut cache = ExactCache::new(2);
++        cache.get_or_insert_with(1, || 11);
++        cache.get_or_insert_with(2, || 22);
++        cache.get_or_insert_with(1, || panic!("Must reuse"));
++        cache.get_or_insert_with(3, || 33);
++        assert_eq!(
++            cache.get_or_insert_with(1, || panic!("Recent retained")),
++            11
++        );
++        assert_eq!(cache.get_or_insert_with(2, || 222), 222);
++        for i in 0..10000 {
++            cache.get_or_insert_with(i, || i);
++        }
++        assert_eq!(cache.entries.len(), 2);
++    }
++    #[test]
++    fn eviction_does_not_invalidate_external_resource_handles() {
++        use std::sync::Arc;
++        let mut cache = ExactCache::new(1);
++        let first = cache.get_or_insert_with(1, || Arc::new(11));
++        cache.get_or_insert_with(2, || Arc::new(22));
++        assert_eq!(*first, 11);
++        assert_eq!(Arc::strong_count(&first), 1);
++    }
++}
+diff --git a/render/wgpu/src/texture_cache.rs b/render/wgpu/src/texture_cache.rs
+new file mode 100644
 --- /dev/null
 +++ b/render/wgpu/src/texture_cache.rs
 @@ -0,0 +1,250 @@

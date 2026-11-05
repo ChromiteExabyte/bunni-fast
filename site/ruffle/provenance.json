@@ -7,17 +7,37 @@
     "Apache-2.0"
   ],
   "sourcePatch": "https://github.com/ChromiteExabyte/bunni-fast/blob/main/patches/ruffle/renderer.patch",
-  "sourcePatchSha256": "1b842f26bd62385916a6c783b0295891f1570b7c1afa6841704fd1771b69c564",
+  "sourcePatchSha256": "c99c02f0ae582fabe411a1c1eece979fa2970b9909b8387bed00a1b8c38c5c60",
   "source": [
     {
+      "file": "core/src/bitmap/operations.rs",
+      "sha256": "bdc2688bd7a49a0c97f655d8806e8927309ed1cff7337fb4606d6c64795d1454",
+      "normalizedLfSha256": "bdc2688bd7a49a0c97f655d8806e8927309ed1cff7337fb4606d6c64795d1454"
+    },
+    {
+      "file": "core/src/context.rs",
+      "sha256": "45d91e6471972d0d3c008c49df900daba29770af4bd18e03d4069d3e6f474fba",
+      "normalizedLfSha256": "45d91e6471972d0d3c008c49df900daba29770af4bd18e03d4069d3e6f474fba"
+    },
+    {
       "file": "core/src/display_object.rs",
-      "sha256": "da2402bccca2297d9ca391e1bf33540caf75a28c8f7fa96b90097fadb7206c69",
-      "normalizedLfSha256": "da2402bccca2297d9ca391e1bf33540caf75a28c8f7fa96b90097fadb7206c69"
+      "sha256": "8e0791ae12db69b706a2eac4c1489c4ed69059f724d248df3c5d7d2c13dfae1c",
+      "normalizedLfSha256": "501a20a7e03a27aa258cb69bd58f13d552b4a0148d727ce9ca031340b3f51b39"
+    },
+    {
+      "file": "core/src/display_object/graphic.rs",
+      "sha256": "efe71f51d336f5ed2f87af78258f35e0bfcc6f6e5f97ae3108b1a657f586f7b5",
+      "normalizedLfSha256": "6ada53fa72ba2c4e5eed2ea5ebf493ff25e3b5d1d788442351853c3e885ed4c2"
     },
     {
       "file": "core/src/display_object/bitmap_cache_bounds.rs",
-      "sha256": "43f1212a92c1c40dea6ad11e6758792a8a884257d692844fd94e804f2a6d05d1",
-      "normalizedLfSha256": "7ad9567507466c7f737b4d1a3b005c35fb8227ec79e1926b2a2b378ca7dccb07"
+      "sha256": "b426014987c7740cf598c15c823968d0df064d30a8aa51029d2d78f97b6dda2f",
+      "normalizedLfSha256": "a756190655d71cc03c3a2e4cb461d159a08bfb9df9093e0455bd8726072e3d46"
+    },
+    {
+      "file": "core/src/player.rs",
+      "sha256": "8fcf078c547ab65c61428cc05a54ddd79e2f3d45bfa20349d200e1965509265c",
+      "normalizedLfSha256": "8fcf078c547ab65c61428cc05a54ddd79e2f3d45bfa20349d200e1965509265c"
     },
     {
       "file": "render/wgpu/src/backend.rs",
@@ -30,9 +50,24 @@
       "normalizedLfSha256": "68048d7259b553b7ad17158950511e3c19a9e3596abb74107ef851a1a19ded70"
     },
     {
+      "file": "render/wgpu/src/descriptors.rs",
+      "sha256": "dd897c7953c5a6c3e5df7fa505ef60513f6032ab43c1dae9aea182a3713c6829",
+      "normalizedLfSha256": "dd897c7953c5a6c3e5df7fa505ef60513f6032ab43c1dae9aea182a3713c6829"
+    },
+    {
       "file": "render/wgpu/src/lib.rs",
-      "sha256": "17587c64bbcdf9a48490cf8d67f4835d4bcc4fa118511d459300aac5db90d3dd",
-      "normalizedLfSha256": "a9b2e9efc34ee019dc487d062de2fb286224cc71bd0ac9692e621104285b63e6"
+      "sha256": "7131e43954741e6f2bad2baa21118136ae31638ea3d1be61764911341a55e515",
+      "normalizedLfSha256": "17d78442f21475346c55ef26433b8515d13ec23ee7a92c9d5e8fea632c857ede"
+    },
+    {
+      "file": "render/wgpu/src/mesh.rs",
+      "sha256": "1630ad87503730ac20d31a1bfb18606fa6548043284f116178f994205e33e6ee",
+      "normalizedLfSha256": "1630ad87503730ac20d31a1bfb18606fa6548043284f116178f994205e33e6ee"
+    },
+    {
+      "file": "render/wgpu/src/exact_cache.rs",
+      "sha256": "ebd7b966597453f6ce615f87b55eb6ddea0e1ff6fe6b6bb5ba754948fc53b750",
+      "normalizedLfSha256": "ebd7b966597453f6ce615f87b55eb6ddea0e1ff6fe6b6bb5ba754948fc53b750"
     },
     {
       "file": "render/wgpu/src/texture_cache.rs",
@@ -42,9 +77,9 @@
   ],
   "artifacts": [
     {
-      "file": "0be84fb241f0375453b8.wasm",
-      "sha256": "ad9db6ce4bc4db575bcbeac75d3d87e0c38f399c8ac57f65d8486cecdcddf482",
-      "bytes": 14458571
+      "file": "7939e1f3855e2c8e5199.wasm",
+      "sha256": "723d56eddfc8a90b6c577a8aefaea7a1b59dcbc39fcc298ff83a14b831a23d84",
+      "bytes": 14462232
     },
     {
       "file": "core.ruffle.d0dc0d3e3b346317f66c.js",
@@ -63,7 +98,7 @@
     },
     {
       "file": "ruffle.js",
-      "sha256": "ccbb9c2f4e1dccf014e42a342bcdaa4d3799aa7b9a0e32c3b7a307a070000c88",
+      "sha256": "0039ce03a5440569b6a58b02b6aa6204c71925b94c7984c829c543f84a0bacc5",
       "bytes": 465623
     }
   ],
@@ -75,8 +110,7 @@
     "wasmOpt": false
   },
   "privacyCleanup": {
-    "bytes": 14458571,
-    "privatePrefixesRemoved": 440,
+    "bytes": 14462232,
     "sections": [
       {
         "section": 11,
@@ -84,11 +118,12 @@
       }
     ],
     "codeSectionSHA256": [
-      "e4da400efec0c97bb3421a22d0cd0b8ade4393408dc68d489e9edbf6cd28b9bd"
+      "4395354f5d9bedaa99f845b7fa6da0de0f6258bbb0fc0f529283864d7584e273"
     ],
     "codeUnchanged": true,
-    "beforeSHA256": "b33c5065937c99067da64c801df77e89d7ffcc65a0e7a28f1a6a2fda8ceaf5d9",
-    "afterSHA256": "ad9db6ce4bc4db575bcbeac75d3d87e0c38f399c8ac57f65d8486cecdcddf482"
+    "beforeSHA256": "49a9594fa8d8ab06681166871789abc02915c16fd22297bf9e34c27aabacea03",
+    "afterSHA256": "723d56eddfc8a90b6c577a8aefaea7a1b59dcbc39fcc298ff83a14b831a23d84",
+    "privatePrefixesRemoved": 440
   },
   "quality": "HIGH; original filters and MSAA retained",
   "clock": "Original authored 30 FPS; no scheduler/simulation change",
@@ -100,5 +135,12 @@
     "scope": "Idle cached temporary textures only, excluding active resources, game assets, staging buffers and driver memory"
   },
   "gameSwfCwsSha256": "c59866f927909a534a53c624a40163dab6556869da6d928c48d8cc3c236ee59c",
-  "verification": "https://github.com/ChromiteExabyte/bunni-fast/blob/main/docs/performance.md"
+  "verification": "https://github.com/ChromiteExabyte/bunni-fast/blob/main/docs/performance.md",
+  "repairDate": "2026-11-05",
+  "exactGradientCache": {
+    "entriesPerDevice": 1024,
+    "key": "Full 1024 RGBA bytes; equality checked",
+    "eviction": "Least recently used; external handles remain valid"
+  },
+  "captureBounds": "Eligible blur-only cached captures: original physical-pixel grid, guard and conservative blur dependency halo; unsupported transforms/filters/blends and active blur with own scrollRect retain original input"
 }

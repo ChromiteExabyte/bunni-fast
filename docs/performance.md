@@ -2,13 +2,38 @@
 
 ## Scope
 
-Original game: 800 x 600, 30 FPS, ActionScript 3. Test system: Windows 11, Intel Iris Xe, Chrome 156.0.8078.80 and Firefox 159.0, custom Ruffle renderer based on 0.7.1 (commit `89a7049965f3090e706265670df309a5128233ac`). Default tested backend: `wgpu-webgl`, HIGH quality. HD means a 1440 x 1080 presentation in a 1920 x 1144 viewport; rasterized original art is enlarged.
+Original game: 800 x 600, 30 FPS, ActionScript 3. Test system: Windows 11, Intel Iris Xe, Chrome 156.0.8078.80 and Firefox 159.0.1, custom Ruffle renderer based on 0.7.1 (commit `89a7049965f3090e706265670df309a5128233ac`). Default tested backend: `wgpu-webgl`, HIGH quality. HD means a 1440 x 1080 presentation in a 1920 x 1144 viewport; rasterized original art is enlarged.
 
-## November 3 custom runtime: matched HD validation
+## November 5: cold-menu stalls and memory use
+
+The previous published runtime still stalled on the first item card and pickup. Light browser/API tracing found a 108.67 ms GPU-process WebGL flush with only 1.459 ms thread CPU, while the main thread spent about 123.8 ms idle during a 147.8 ms callback gap. This shows waiting/descheduling, not 109 ms of measured GPU computation. Native kernel/system-call tracing was unavailable because of the earlier OS-policy denial; no kernel stack is claimed.
+
+The rotating original card generated a 3,312 x 3,250 RGBA capture and matching 4x-MSAA renderbuffer, about 215 MiB combined, despite the 1,440 x 1,080 presentation. Its original white reveal animates BlurFilter strength from about 143 through 57 to zero. Nested placement blur also captured 3,027 x 1,449 pixels. The new runtime bounds eligible captures to the known target, preserving a conservative blur dependency halo, physical-pixel sampling grid, guard and original effects. Unsupported cases retain the original capture. Exact gradient sharing removes duplicate allocations: 5,845 uploads contained only 610 distinct 1,024-byte RGBA arrays. Exact scale-1 mesh reuse avoids another duplicate allocation.
+
+Matched comparisons used fresh isolated profiles with the same copied save, unchanged game CWS/FWS/delta, HIGH, wgpu-webgl, DPR 1, a 1,920 x 1,144 viewport and a 1,440 x 1,080 player. The control was the November 3 deployed runtime, not stock Ruffle. Each cold window starts before the first item interaction and includes the original card effect, pickup and held placement for about 13.5 seconds. Screenshots were outside timing windows and show the real game world.
+
+| Actual callback / memory measurement | November 3 control | November 5 candidate |
+| --- | --- | --- |
+| Chrome: cold-interaction browser worst | 199.8 ms | 32.5 ms |
+| Firefox: cold-interaction browser worst | 437 ms | 52 ms |
+| Chrome: moving-held-item browser p95 / worst | 17.5 / 32.4 ms | 17.7 / 31.8 ms |
+| Firefox: moving-held-item browser p95 / worst | 19 / 34 ms | 19 / 34 ms |
+| Chrome: isolated browser-tree private commit after interaction | 2,701.5 MiB | 2,399.8 MiB |
+| Chrome: same measurement, GPU process private commit | 2,123.3 MiB | 1,834.1 MiB |
+
+The cold stalls improved; repeated movement was comparable. Private commit is not resident RAM or GPU residency, and GPU counters must not be added to process totals. Earlier testing alongside another memory-heavy game had only about 292 MiB free and heavy paging. That pressure is a separate contributor, not proof of a Bunni memory leak. The improved runtime still uses substantial memory on this system.
+
+The exact candidate then completed walking, two Save open/close cycles and two Map open/close cycles in each browser. Chrome's three real walking segments had game-update p95 36.0 / 36.8 / 36.9 ms and worst 48.5 / 50.3 / 46.2 ms. Firefox's had p95 36 / 36 / 36 ms and worst 56 / 49 / 52 ms. Actual movement was checked, not inferred from clicks or nominal FPS. Browser-frame maxima across those phases were 34.6 ms in Chrome and 39 ms in Firefox. Occasional game-update tails remain; this is not a zero-jitter claim.
+
+All 33 deterministic rendering comparisons per browser were pixel-identical to the previous runtime: original card art and blur, nested/rotated/reflected/fractional captures, scroll-rectangle fallbacks, bitmap draws, masks, Multiply, gradient types/spread/ratio edges, and cache resize/filter transitions. Nine bounds/blur-kernel tests and three exact-cache tests passed. Full process restart without reseeding restored all 14 compared save categories in Chrome and Firefox, and actual Export UI downloads had valid checksums. The SWF, save code and format are unchanged.
+
+Exact WASM SHA-256: `723d56eddfc8a90b6c577a8aefaea7a1b59dcbc39fcc298ff83a14b831a23d84`. [Source/build provenance](../site/ruffle/provenance.json) records all 13 source hashes and the binary. The patch was applied to a clean upstream file tree and its normalized source hashes matched. Privacy cleanup changed 440 source-path strings without changing executable code. Raw traces, full screenshots, copied saves and diagnostic harnesses remain private under the ignored `.tools/2026-11-05-lag/` directory. No full-ending or arbitrary-hardware coverage is claimed. Save and refresh an already-open page to load the update.
+
+## Historical November 3 custom runtime: matched HD validation
 
 After the earlier SWF repair, first interactions and held-item rendering still stalled. Browser/API profiling linked GPU readback waits to `BitmapData.hitTest -> BitmapRawDataWrapper::sync -> QueueSyncHandle::capture -> getBufferSubData`. A full-HD baseline measured one 617.7 ms readback. Held placement also repeatedly allocated oversized MSAA captures despite the clipped stage; the stalls could occur without long synchronous GL calls.
 
-The [six-file renderer patch](../patches/ruffle/README.md) preserves filters, effects, exact pixel hit testing, HIGH quality, MSAA and the authored clock. It crops only conservatively eligible zero-blur cached captures on their original physical-pixel grid, with a guard and capture-origin invalidation. Temporary-texture reuse has bounded idle admission and weak per-target recent-draw history. One-shot/large bitmap draws keep the stock lifetime, avoiding an earlier rejected startup regression. No experimental scheduler, broad pixel prewarming or identity-filter bypass is shipped.
+The [then-six-file renderer patch](../patches/ruffle/README.md) preserves filters, effects, exact pixel hit testing, HIGH quality, MSAA and the authored clock. It crops only conservatively eligible zero-blur cached captures on their original physical-pixel grid, with a guard and capture-origin invalidation. Temporary-texture reuse has bounded idle admission and weak per-target recent-draw history. One-shot/large bitmap draws keep the stock lifetime, avoiding an earlier rejected startup regression. No experimental scheduler, broad pixel prewarming or identity-filter bypass is shipped.
 
 Fresh isolated Chrome 156 profiles used the same copied save, exact game SWF, `wgpu-webgl`, viewport 1920 x 1144, DPR 1 and actual 1440 x 1080 presentation at HIGH. No concurrent heavy benchmarks or screenshots occurred inside timing windows.
 
