@@ -60,6 +60,16 @@ async function start() {
   if (local) options = {url:'game/' + swf};
   else if (original) options = {url:archiveBase + 'LandOfBunnies.swf'};
   else {
+    // The SWF requests these dependencies in order. Start their transfers while
+    // the main SWF is being fetched and verified; Ruffle still loads them itself.
+    for (const name of ['vector_art.swf', 'game.xml', 'store_items.xml', 'Sounds.swf']) {
+      const preload = document.createElement('link');
+      preload.rel = 'preload';
+      preload.as = 'fetch';
+      preload.crossOrigin = 'anonymous';
+      preload.href = archiveBase + name;
+      document.head.appendChild(preload);
+    }
     const response = await fetch('patches/manifest.json', {cache:'no-cache'});
     if (!response.ok) throw new Error('Could not load the game patch.');
     const manifest = await response.json();
