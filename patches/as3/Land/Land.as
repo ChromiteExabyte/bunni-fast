@@ -1439,12 +1439,14 @@ package Land
       // mScreenBitmapData still exists for width/height queries; the map viewport is separate.
       private static var mScreen:Sprite = new Sprite();
 
-      // bunni-fast: keep the world-map display child physically screen-sized. scrollRect alone
-      // does not prevent Ruffle's filter path from allocating for the full 4640x2390 child.
-      // Crop through one bounded GPU pass. No map or screen pixels are read back to the CPU.
+      // Bound the map capture and keep a margin around the camera. Scrolling
+      // within that margin only moves the screen-sized window over the capture.
+      private static var mViewportPadding:int = 128;
       private static var mMapViewport:BitmapData;
       private static var mMapCrop:Sprite;
       private static var mMapCropBitmap:Bitmap;
+      private static var mMapDisplay:Bitmap;
+      private static var mMapWindow:Rectangle = new Rectangle(0,0,World.SCREEN_WIDTH,World.SCREEN_HEIGHT);
       private static var mViewportX:int = int.MAX_VALUE;
       private static var mViewportY:int = int.MAX_VALUE;
       private static var mViewportDirty:Boolean = true;
@@ -1452,30 +1454,51 @@ package Land
 
       private static function QueueMapViewport() : void
       {
+         var padding:int = mViewportPadding;
          if(mMapViewport == null)
          {
-            mMapViewport = new BitmapData(World.SCREEN_WIDTH,World.SCREEN_HEIGHT,false,5341124);
+            var width:int = World.SCREEN_WIDTH + 2 * padding;
+            var height:int = World.SCREEN_HEIGHT + 2 * padding;
+            mMapViewport = new BitmapData(width,height,false,5341124);
             mMapCrop = new Sprite();
             var water:Shape = new Shape();
             water.graphics.beginFill(5341124,1);
-            water.graphics.drawRect(0,0,World.SCREEN_WIDTH,World.SCREEN_HEIGHT);
+            water.graphics.drawRect(0,0,width,height);
             water.graphics.endFill();
             mMapCrop.addChild(water);
             mMapCropBitmap = new Bitmap(mEntireMap);
             mMapCrop.addChild(mMapCropBitmap);
+            mMapDisplay = new Bitmap(mMapViewport);
          }
-         if(mViewportDirty || mViewportX != World.WORLD_LOC_X || mViewportY != World.WORLD_LOC_Y)
+         if(mViewportDirty || Math.abs(mViewportX - World.WORLD_LOC_X) > padding || Math.abs(mViewportY - World.WORLD_LOC_Y) > padding)
          {
             mMapCropBitmap.bitmapData = mEntireMap;
-            mMapCropBitmap.x = -World.WORLD_LOC_X - WORLD_INSET / 2;
-            mMapCropBitmap.y = -World.WORLD_LOC_Y - WORLD_INSET / 2;
+            mMapCropBitmap.x = padding - World.WORLD_LOC_X - WORLD_INSET / 2;
+            mMapCropBitmap.y = padding - World.WORLD_LOC_Y - WORLD_INSET / 2;
             mMapViewport.draw(mMapCrop,null,null,null,mMapViewport.rect,false);
             mViewportX = World.WORLD_LOC_X;
             mViewportY = World.WORLD_LOC_Y;
             mViewportDirty = false;
             ++mViewportCopies;
          }
-         queue(mMapViewport);
+         if(padding == 0)
+         {
+            queue(mMapViewport);
+         }
+         else
+         {
+            mMapWindow.x = padding + World.WORLD_LOC_X - mViewportX;
+            mMapWindow.y = padding + World.WORLD_LOC_Y - mViewportY;
+            mMapDisplay.scrollRect = mMapWindow;
+            mScreen.addChild(mMapDisplay);
+         }
+      }
+
+      public static function setViewportOverscan(enabled:Boolean) : void
+      {
+         mViewportPadding = enabled ? 128 : 0;
+         mMapViewport = null;
+         mViewportDirty = true;
       }
 
       private static var mKeepIdentityFilters:Boolean = true;
