@@ -114,6 +114,8 @@ package World
 
       private var mMouseDown:Boolean = false;
 
+      private var mHoverWhileWalking:Boolean = false;
+
       private var mMouseStillDownCounter:int = 0;
 
       private var mLastX:int;
@@ -214,6 +216,8 @@ package World
                ExternalInterface.addCallback("bunniBenchRenderInfo",Land.renderInfo);
                ExternalInterface.addCallback("bunniBenchMapLabelCache",GenericItem.setMapLabelCache);
                ExternalInterface.addCallback("bunniBenchCullBitmaps",Land.setBitmapCull);
+               ExternalInterface.addCallback("bunniBenchViewportOverscan",Land.setViewportOverscan);
+               ExternalInterface.addCallback("bunniBenchWalkHover",this.benchWalkHover);
                ExternalInterface.addCallback("bunniBenchIdentity",Land.setIdentityFilterBypass);
                ExternalInterface.addCallback("bunniBenchPause",this.benchPause);
                ExternalInterface.addCallback("bunniBenchSaveInfo",Save.SaveInfo);
@@ -553,7 +557,10 @@ package World
                         mAvatar.update();
                         if(mBench) trace("bunni-fast-phase avatar");
                      }
-                     _loc3_ = TestCollision.MousePointOnItem(this.mStage.mouseX,this.mStage.mouseY);
+                     // A press has already chosen walking. Hover tests are
+                     // useful again on release, and presses still test pixels.
+                     _loc3_ = this.mMouseDown && !this.mHoverWhileWalking ? null :
+                        TestCollision.MousePointOnItem(this.mStage.mouseX,this.mStage.mouseY);
                      if(mBench) trace("bunni-fast-phase hit");
                      if(Boolean(_loc3_) && !(_loc3_ is BuildingItem))
                      {
@@ -768,6 +775,11 @@ package World
          }
       }
 
+
+      private function benchWalkHover(enabled:Boolean) : void
+      {
+         this.mHoverWhileWalking = enabled;
+      }
 
       private function benchMovement(count:int = 300) : String
       {
