@@ -1683,9 +1683,13 @@ package Land
       private static var mPointGrid:Object;
       private static var mPointGridSource:Array;
       private static var mPointGridCount:int = -1;
+      private static var mIndexShoreStep:Boolean = true;
       private static var mLastAvatarKey:String = "";
       private static var mLastAvatarX:Number;
       private static var mLastAvatarY:Number;
+      private static var mCachePlacementStep:Boolean = true;
+      private static var mLastPlacementKey:String = "";
+      private static var mLastPlacementStep:Vector2D;
 
       private static function EnsurePointGrid() : void
       {
@@ -1694,6 +1698,8 @@ package Land
          mPointGridCount = mLandArray.length;
          mPointGrid = {};
          mLastAvatarKey = "";
+         mLastPlacementKey = "";
+         mLastPlacementStep = null;
          for each(var blob:Object in mLandArray)
          {
             var circle:Circle = blob.circle;
@@ -1733,10 +1739,61 @@ package Land
          if(pointOnLandFast(px + step.x,py + step.y)) return step;
          var key:String = dx + ":" + dy + ":" + px + ":" + py + ":" + speed;
          if(key == mLastAvatarKey) return new Vector2D(mLastAvatarX,mLastAvatarY);
-         // Preserve the original compiled movement fallback, including shore rules.
-         step = TestCollision.NextStep(dx,dy,px,py,speed);
+         step = mIndexShoreStep ? nextShoreStep(dx,dy,px,py,speed,step) :
+            TestCollision.NextStep(dx,dy,px,py,speed);
          mLastAvatarKey = key; mLastAvatarX = step.x; mLastAvatarY = step.y;
          return step;
+      }
+
+      private static function nextShoreStep(dx:int, dy:int, px:int, py:int, speed:int, step:Vector2D) : Vector2D
+      {
+         // Match the point-based branch of TestCollision.NextStep, including
+         // its probe order, tie-breaking and fractional movement.
+         step.Truncate(Math.min(Math.abs(dx - px),Math.abs(dy - py)));
+         var clockwise:Vector2D = step.Clone();
+         for(var angle:int = 0; !pointOnLandFast(px + clockwise.x,py + clockwise.y); angle += 5)
+         {
+            if(angle == 360) return new Vector2D(0,0);
+            clockwise.Rotate(5);
+         }
+         while(!pointOnLandFast(px + step.x,py + step.y))
+         {
+            step.Rotate(-5);
+         }
+         var clockwiseDistance:Number = new Vector2D(dx - (px + clockwise.x),dy - (py + clockwise.y)).Length();
+         var counterclockwiseDistance:Number = new Vector2D(dx - (px + step.x),dy - (py + step.y)).Length();
+         var remainingDifference:Number = Math.min(speed,Math.abs(clockwiseDistance - counterclockwiseDistance));
+         var chosen:Vector2D = clockwiseDistance < counterclockwiseDistance ? clockwise : step;
+         chosen.MultiplyByNumber(remainingDifference / speed);
+         return chosen;
+      }
+
+      public static function setShoreStepIndex(enabled:Boolean) : void
+      {
+         mIndexShoreStep = enabled;
+         mLastAvatarKey = "";
+      }
+
+      public static function nextPlacementStep(dx:int, dy:int, px:int, py:int, speed:int, footprint:Circle) : Vector2D
+      {
+         if(!mCachePlacementStep) return TestCollision.NextStep(dx,dy,px,py,speed,footprint);
+         // Drag movement only queries terrain. A held pointer can request the
+         // same blocked step every frame until the cursor or the terrain changes.
+         EnsurePointGrid();
+         var key:String = dx + ":" + dy + ":" + px + ":" + py + ":" + speed +
+            ":" + footprint.x + ":" + footprint.y + ":" + footprint.r;
+         if(key == mLastPlacementKey) return mLastPlacementStep.Clone();
+         var step:Vector2D = TestCollision.NextStep(dx,dy,px,py,speed,footprint);
+         mLastPlacementKey = key;
+         mLastPlacementStep = step.Clone();
+         return step;
+      }
+
+      public static function setPlacementStepCache(enabled:Boolean) : void
+      {
+         mCachePlacementStep = enabled;
+         mLastPlacementKey = "";
+         mLastPlacementStep = null;
       }
 
       private static var mCullBitmapQuads:Boolean = true;

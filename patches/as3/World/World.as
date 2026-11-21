@@ -218,6 +218,8 @@ package World
                ExternalInterface.addCallback("bunniBenchCullBitmaps",Land.setBitmapCull);
                ExternalInterface.addCallback("bunniBenchViewportOverscan",Land.setViewportOverscan);
                ExternalInterface.addCallback("bunniBenchWalkHover",this.benchWalkHover);
+               ExternalInterface.addCallback("bunniBenchPlacementStepCache",Land.setPlacementStepCache);
+               ExternalInterface.addCallback("bunniBenchShoreStepIndex",Land.setShoreStepIndex);
                ExternalInterface.addCallback("bunniBenchIdentity",Land.setIdentityFilterBypass);
                ExternalInterface.addCallback("bunniBenchPause",this.benchPause);
                ExternalInterface.addCallback("bunniBenchSaveInfo",Save.SaveInfo);

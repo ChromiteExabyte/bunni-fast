@@ -12,7 +12,8 @@ The target is the original **30 game updates per second**, at **HIGH quality** w
 - Render the world through pooled display objects and a bounded map viewport, avoiding repeated screen-bitmap GPU/CPU transfers and huge filtered textures.
 - Reuse original Map label artwork instead of recreating text/vector objects every frame. Skip fully offscreen bitmap quads before the screen filter.
 - Use a documented custom Ruffle renderer to bound cached captures and reuse temporary GPU textures, reducing allocation stalls without dropping filters or quality. [Source and build provenance](patches/ruffle/README.md).
-- Accelerate avatar land queries with a conservative spatial index. Keep the original compiled shore-movement fallback and exact circle predicate.
+- Use a conservative spatial index for direct and shoreline avatar movement with the original circle predicate and steering rules. Reuse identical terrain collision results while dragging placement items.
+- Download the pinned emulator runtime in parallel with the game patch.
 - Replace the unavailable account-server save flow with browser-local saves, autosaving every 15 seconds between complete, unpaused updates. Manual **Save** also exports/imports portable JSON backups.
 - Use Ruffle's `wgpu-webgl` backend by default. On the tested system, WebGPU had a Firefox staging-buffer panic and a Chrome bitmap readback stall. The SWF alone cannot select a host player's backend.
 

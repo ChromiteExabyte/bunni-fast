@@ -174,7 +174,7 @@ package MapItems.StoreItems
       {
          this.destX = Land.mStage.mouseX + World.WORLD_LOC_X;
          this.destY = (Land.mStage.mouseY + World.WORLD_LOC_Y) * 2;
-         var _loc1_:Vector2D = TestCollision.NextStep(this.destX,this.destY,x,y,50,this.mInnerCircle);
+         var _loc1_:Vector2D = Land.nextPlacementStep(this.destX,this.destY,x,y,50,this.mInnerCircle);
          if(_loc1_.Length() != 0)
          {
             this.x += _loc1_.x;
