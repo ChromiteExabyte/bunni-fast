@@ -1710,10 +1710,32 @@ package Land
          if(pointOnLandFast(px + step.x,py + step.y)) return step;
          var key:String = dx + ":" + dy + ":" + px + ":" + py + ":" + speed;
          if(key == mLastAvatarKey) return new Vector2D(mLastAvatarX,mLastAvatarY);
-         // Preserve the original compiled movement fallback, including shore rules.
-         step = TestCollision.NextStep(dx,dy,px,py,speed);
+         step = nextShoreStep(dx,dy,px,py,speed,step);
          mLastAvatarKey = key; mLastAvatarX = step.x; mLastAvatarY = step.y;
          return step;
+      }
+
+      private static function nextShoreStep(dx:int, dy:int, px:int, py:int, speed:int, step:Vector2D) : Vector2D
+      {
+         // Match the point-based branch of TestCollision.NextStep, including
+         // its probe order, tie-breaking and fractional movement.
+         step.Truncate(Math.min(Math.abs(dx - px),Math.abs(dy - py)));
+         var clockwise:Vector2D = step.Clone();
+         for(var angle:int = 0; !pointOnLandFast(px + clockwise.x,py + clockwise.y); angle += 5)
+         {
+            if(angle == 360) return new Vector2D(0,0);
+            clockwise.Rotate(5);
+         }
+         while(!pointOnLandFast(px + step.x,py + step.y))
+         {
+            step.Rotate(-5);
+         }
+         var clockwiseDistance:Number = new Vector2D(dx - (px + clockwise.x),dy - (py + clockwise.y)).Length();
+         var counterclockwiseDistance:Number = new Vector2D(dx - (px + step.x),dy - (py + step.y)).Length();
+         var remainingDifference:Number = Math.min(speed,Math.abs(clockwiseDistance - counterclockwiseDistance));
+         var chosen:Vector2D = clockwiseDistance < counterclockwiseDistance ? clockwise : step;
+         chosen.MultiplyByNumber(remainingDifference / speed);
+         return chosen;
       }
 
       private static var mCullBitmapQuads:Boolean = true;
